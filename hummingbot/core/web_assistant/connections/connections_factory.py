@@ -35,5 +35,5 @@ class ConnectionsFactory:
         return connection
 
     async def _get_shared_client(self) -> aiohttp.ClientSession:
-        self._shared_client = self._shared_client or aiohttp.ClientSession()
+        self._shared_client = self._shared_client or aiohttp.ClientSession(proxy="http://127.0.0.1:7897")
         return self._shared_client
