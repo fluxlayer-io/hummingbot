@@ -1,0 +1,12 @@
+numpy
+Cython
+pandas
+pydantic<2
+tabulate
+cachetools
+aiohttp
+ujson
+bidict
+aioprocessing
+eth_account
+pandas
