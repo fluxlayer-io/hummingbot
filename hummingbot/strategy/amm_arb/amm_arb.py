@@ -231,9 +231,8 @@ class AmmArbStrategy(StrategyPyBase):
                                    "\n".join(self.short_proposal_msg(self._all_arb_proposals, False)))
                 self._last_no_arb_reported = self.current_timestamp
             return
-        self.logger().info("======================== profitable_arb_proposals ==========================")
-        self.logger().info(f"profitable_arb_proposals: {profitable_arb_proposals}")
-        self.logger().info("======================== profitable_arb_proposals ==========================")
+        self.logger().info("======================== Found arbitrage opportunity.\n ==========================")
+        self.logger().info("\n".join(self.short_proposal_msg(self._all_arb_proposals, False)))
         # await self.apply_slippage_buffers(profitable_arb_proposals)
         # self.apply_budget_constraint(profitable_arb_proposals)
         # await self.execute_arb_proposals(profitable_arb_proposals)
