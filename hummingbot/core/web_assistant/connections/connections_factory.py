@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 import aiohttp
@@ -35,5 +36,10 @@ class ConnectionsFactory:
         return connection
 
     async def _get_shared_client(self) -> aiohttp.ClientSession:
-        self._shared_client = self._shared_client or aiohttp.ClientSession(proxy="http://127.0.0.1:7897")
+        if self._shared_client is None:
+            proxy = os.getenv("HTTP_PROXY")
+            if proxy:
+                self._shared_client = aiohttp.ClientSession(proxy=proxy)
+            else:
+                self._shared_client = aiohttp.ClientSession()
         return self._shared_client
