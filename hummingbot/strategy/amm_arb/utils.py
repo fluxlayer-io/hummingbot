@@ -40,9 +40,6 @@ async def create_arb_proposals(
     for trade_direction, task_group_result in zip(TradeDirection, results_raw):
         is_buy = trade_direction == TradeDirection.BUY
         m_1_q_price, m_1_o_price, m_2_q_price, m_2_o_price = task_group_result
-        # mock price
-        m_2_q_price = Decimal("105")
-        m_2_o_price = Decimal("105")
         if any(p is None for p in (m_1_o_price, m_1_q_price, m_2_o_price, m_2_q_price)):
             continue
 
