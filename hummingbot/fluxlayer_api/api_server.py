@@ -10,7 +10,7 @@ sys.path.append(project_root)
 from hummingbot.fluxlayer_api.rfq import get_single_exchange_rfq, get_best_rfq
 
 app_host="0.0.0.0"
-app_port=8080
+app_port=8081
 
 class GetRFQRequest(BaseModel):
     src_chain: str = Field(..., description="源链, cobo wallet 格式")
