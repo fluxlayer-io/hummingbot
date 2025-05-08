@@ -1,5 +1,6 @@
 import asyncio
 import time
+import os
 from json import JSONDecodeError
 from typing import Any, Dict, Mapping, Optional
 
@@ -35,14 +36,22 @@ class WSConnection:
         ws_headers: Optional[Dict] = {},
         max_msg_size: Optional[int] = None
     ):
-        self._ensure_not_connected()
+        proxy = os.environ.get("HTTP_PROXY")
+
+        ws_connect_kwargs = {
+            "headers": ws_headers,
+            "autoping": False,
+            "heartbeat": ping_timeout,
+            "max_msg_size": max_msg_size,
+        }
+        if proxy:
+            ws_connect_kwargs["proxy"] = proxy
+
         self._connection = await self._client_session.ws_connect(
             ws_url,
-            headers=ws_headers,
-            autoping=False,
-            heartbeat=ping_timeout,
-            max_msg_size=max_msg_size,
+            **ws_connect_kwargs
         )
+
         self._message_timeout = message_timeout
         self._connected = True
 
