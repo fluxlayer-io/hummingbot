@@ -174,7 +174,8 @@ class ExecutorBase(RunnableBase):
         """
         Called when the executor is started.
         """
-        await self.validate_sufficient_balance()
+        # await self.validate_sufficient_balance()
+        pass
 
     def on_stop(self):
         """
