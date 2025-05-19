@@ -4,6 +4,7 @@ from typing import Dict, List, Set
 import pandas as pd
 
 from hummingbot.client.ui.interface_utils import format_df_for_printout
+from hummingbot.connector.exchange.fluxlayer.fluxlayer_metadata import FluxLayerMetadata
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase
 from hummingbot.strategy_v2.executors.arbitrage_executor.data_types import ArbitrageExecutorConfig
@@ -22,6 +23,7 @@ class ArbitrageControllerConfig(ControllerConfigBase):
     max_executors_imbalance: int = 1
     rate_connector: str = "binance"
     quote_conversion_asset: str = "USDT"
+    fluxlayer_metadata: FluxLayerMetadata
 
     def update_markets(self, markets: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
         if self.exchange_pair_1.connector_name == self.exchange_pair_2.connector_name:
@@ -60,6 +62,15 @@ class ArbitrageController(ControllerBase):
         self._len_active_sell_arbitrages = 0
         self.base_asset = self.config.exchange_pair_1.trading_pair.split("-")[0]
         self.initialize_rate_sources()
+        self._init_fluxlayer_metadata()
+
+    def _init_fluxlayer_metadata(self):
+        """初始化 FluxLayer 元数据"""
+        for conn in [self.config.exchange_pair_1, self.config.exchange_pair_2]:
+            if conn.connector_name == "fluxlayer":
+                fluxlayer_connector = self.market_data_provider.get_connector(conn.connector_name)
+
+                fluxlayer_connector.metadata = self.config.fluxlayer_metadata
 
     def initialize_rate_sources(self):
         rates_required = []

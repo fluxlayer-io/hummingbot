@@ -121,8 +121,8 @@ class GatewaySwap(GatewayBase):
                     self.logger().warning(
                         f"Warning! [{index + 1}/{len(exceptions)}] {side} order - {exceptions[index]}"
                     )
-                if len(exceptions) > 0:
-                    return None
+                # if len(exceptions) > 0:
+                #     return None
             return price
         return None
 

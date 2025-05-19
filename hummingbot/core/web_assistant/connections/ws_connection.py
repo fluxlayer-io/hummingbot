@@ -1,6 +1,6 @@
 import asyncio
-import time
 import os
+import time
 from json import JSONDecodeError
 from typing import Any, Dict, Mapping, Optional
 
@@ -43,13 +43,14 @@ class WSConnection:
             "autoping": False,
             "heartbeat": ping_timeout,
             "max_msg_size": max_msg_size,
+            "proxy": "http://127.0.0.1:7897"
         }
         if proxy:
             ws_connect_kwargs["proxy"] = proxy
 
         self._connection = await self._client_session.ws_connect(
             ws_url,
-            **ws_connect_kwargs
+            **ws_connect_kwargs,
         )
 
         self._message_timeout = message_timeout
