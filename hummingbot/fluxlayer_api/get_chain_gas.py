@@ -1,7 +1,8 @@
+import json
+
 import requests
 from web3 import Web3
 from web3.gas_strategies.time_based import medium_gas_price_strategy
-
 
 # 配置不同链的RPC节点
 CHAIN_CONFIG = {
@@ -64,4 +65,33 @@ def get_gas_prices(chain_name):
             "priority_fee": w3.eth.max_priority_fee/1000000000
         }
 
+def get_solana_fee():
+    url = "https://localhost:15888/solana/estimate-gas"
+    headers = {"Content-Type": "application/json"}
 
+    payload = {
+        "chain": "solana",
+        "network": "mainnet-beta",
+        "gasLimit": 200000
+    }
+
+    # 写死的证书路径
+    cert = (
+        "/Users/leo/project/fluxlayer/hummingbot/certs/client_cert.pem",  # 客户端证书
+        "/Users/leo/project/fluxlayer/hummingbot/certs/client_key.pem"    # 客户端私钥
+    )
+    verify = "/Users/leo/project/fluxlayer/hummingbot/certs/ca_cert.pem"  # CA 证书
+
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            data=json.dumps(payload),
+            cert=cert,
+            verify=verify,  # 设置为 False 可跳过验证（不推荐）
+            timeout=10
+        )
+        data = response.json()
+        return data
+    except Exception as e:
+        return {"error": str(e)}

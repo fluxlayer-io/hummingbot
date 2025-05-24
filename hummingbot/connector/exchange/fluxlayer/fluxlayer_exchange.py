@@ -563,15 +563,16 @@ class FluxlayerExchange(ExchangePyBase):
             pair_meta = self.metadata.trading_pairs[trading_pair]
             print(pair_meta)
             params = {
-                "src_chain": pair_meta.source_chain,
-                "src_token": pair_meta.source_token,
-                "src_amount": float(self.metadata.amount),  # JSON 要求 float
-                "tar_chain": pair_meta.target_chain,
-                "tar_token": pair_meta.target_token,
+                "source_chain": pair_meta.source_chain,
+                "source_token": pair_meta.source_token,
+                "amount": float(self.metadata.amount),  # JSON 要求 float
+                "target_chain": pair_meta.target_chain,
+                "target_token": pair_meta.target_token,
+                "is_buy": is_buy,
             }
 
             # 完整 URL 拼接
-            url = f"{self.metadata.api_endpoint}/get_best_rfq"
+            url = f"{self.metadata.api_endpoint}/rfq_request"
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=params, headers={"Content-Type": "application/json"}) as resp:
@@ -580,8 +581,8 @@ class FluxlayerExchange(ExchangePyBase):
                         return None
                     response = await resp.json()
 
-            if response and "tar_amount" in response and "src_amount" in response:
-                price = Decimal(str(response["tar_amount"])) / Decimal(str(response["src_amount"]))
+            if response and "target_price" in response:
+                price = Decimal(str(response["target_price"]))
                 return price
             else:
                 self.logger().error(f"Failed to get quote price, response: {response}")
