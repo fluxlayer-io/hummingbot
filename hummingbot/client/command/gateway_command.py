@@ -308,8 +308,9 @@ class GatewayCommand(GatewayChainApiManager):
                                 chain, network, w, [native_token]
                             )
                             balance = (
-                                balances['balances'].get(native_token)
-                                or balances['balances']['total'].get(native_token)
+                                balances['balances'][native_token]
+                                if native_token in balances['balances']
+                                else balances['balances']['total'].get(native_token)
                             )
                             wallet_table.append(
                                 {"balance": balance, "address": w})

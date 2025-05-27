@@ -162,8 +162,14 @@ class ArbitrageExecutor(ExecutorBase):
                 await self.update_trade_pnl_pct()
                 await self.update_tx_cost()
                 self._current_profitability = (self._trade_pnl_pct * self.order_amount - self._last_tx_cost) / self.order_amount
-                if self._current_profitability > self.min_profitability:
-                    await self.execute_arbitrage()
+                self.logger().info(f"buy market: {self.buying_market.connector_name}, price: {self._last_buy_price}, ")
+                self.logger().info(
+                    f"sell market: {self.selling_market.connector_name}, price: {self._last_sell_price}, ")
+                self.logger().info(f"order amount: {self.order_amount}")
+                self.logger().info(
+                    f"{self.buying_market.connector_name}-{self.selling_market.connector_name} found arbitrage opportunity: "
+                    f"{self._current_profitability} > {self.min_profitability}")
+                # await self.execute_arbitrage()
             except Exception as e:
                 self.logger().error(f"Error calculating profitability: {e}")
         elif self.status == RunnableStatus.SHUTTING_DOWN:

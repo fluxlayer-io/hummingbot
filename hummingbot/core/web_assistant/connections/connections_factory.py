@@ -48,7 +48,7 @@ class ConnectionsFactory:
         Lazily create a shared aiohttp.ClientSession if not already available.
         """
         if self._shared_client is None:
-            self._shared_client = aiohttp.ClientSession()
+            self._shared_client = aiohttp.ClientSession(proxy="http://127.0.0.1:7897")
         return self._shared_client
 
     async def close(self) -> None:
