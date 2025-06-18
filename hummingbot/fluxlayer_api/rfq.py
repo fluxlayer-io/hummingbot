@@ -1,35 +1,3 @@
-from hummingbot.logger import HummingbotLogger
-from hummingbot.fluxlayer_api.get_chain_gas import get_btc_fee, get_gas_prices, get_solana_fee
-from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
-from hummingbot.core.data_type.order_book_tracker import OrderBookTracker
-from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
-from hummingbot.connector.exchange.okx.okx_exchange import OkxExchange
-from hummingbot.connector.exchange.okx.okx_api_order_book_data_source import OkxAPIOrderBookDataSource
-from hummingbot.connector.exchange.okx import okx_constants as OKX_CONSTANTS
-from hummingbot.connector.exchange.mexc.mexc_exchange import MexcExchange
-from hummingbot.connector.exchange.mexc.mexc_api_order_book_data_source import MexcAPIOrderBookDataSource
-from hummingbot.connector.exchange.mexc import mexc_constants as MEXC_CONSTANTS
-from hummingbot.connector.exchange.kucoin.kucoin_exchange import KucoinExchange
-from hummingbot.connector.exchange.kucoin.kucoin_api_order_book_data_source import KucoinAPIOrderBookDataSource
-from hummingbot.connector.exchange.kucoin import kucoin_constants as KUCOIN_CONSTANTS
-from hummingbot.connector.exchange.gate_io.gate_io_exchange import GateIoExchange
-from hummingbot.connector.exchange.gate_io.gate_io_api_order_book_data_source import GateIoAPIOrderBookDataSource
-from hummingbot.connector.exchange.gate_io import gate_io_constants as GATE_IO_CONSTANTS
-from hummingbot.connector.exchange.bybit.bybit_exchange import BybitExchange
-from hummingbot.connector.exchange.bybit.bybit_api_order_book_data_source import BybitAPIOrderBookDataSource
-from hummingbot.connector.exchange.bybit import bybit_constants as BYBIT_CONSTANTS
-from hummingbot.connector.exchange.bitmart.bitmart_exchange import BitmartExchange
-from hummingbot.connector.exchange.bitmart.bitmart_api_order_book_data_source import BitmartAPIOrderBookDataSource
-from hummingbot.connector.exchange.bitmart import bitmart_constants as BITMART_CONSTANTS
-from hummingbot.connector.exchange.bing_x.bing_x_exchange import BingXExchange
-from hummingbot.connector.exchange.bing_x.bing_x_api_order_book_data_source import BingXAPIOrderBookDataSource
-from hummingbot.connector.exchange.bing_x import bing_x_constants as BING_X_CONSTANTS
-from hummingbot.connector.exchange.binance.binance_exchange import BinanceExchange
-from hummingbot.connector.exchange.binance.binance_api_order_book_data_source import BinanceAPIOrderBookDataSource
-from hummingbot.connector.exchange.binance import binance_constants as BINANCE_CONSTANTS
-from hummingbot.client.hummingbot_application import HummingbotApplication
-from hummingbot.client.config.config_helpers import ClientConfigAdapter
-from hummingbot.client.config.client_config_map import AnonymizedMetricsEnabledMode, ClientConfigMap
 import asyncio
 import json
 import os
@@ -42,6 +10,39 @@ import aiohttp
 import asyncpg
 import requests
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
+
+from hummingbot.client.config.client_config_map import AnonymizedMetricsEnabledMode, ClientConfigMap
+from hummingbot.client.config.config_helpers import ClientConfigAdapter
+from hummingbot.client.hummingbot_application import HummingbotApplication
+from hummingbot.connector.exchange.binance import binance_constants as BINANCE_CONSTANTS
+from hummingbot.connector.exchange.binance.binance_api_order_book_data_source import BinanceAPIOrderBookDataSource
+from hummingbot.connector.exchange.binance.binance_exchange import BinanceExchange
+from hummingbot.connector.exchange.bing_x import bing_x_constants as BING_X_CONSTANTS
+from hummingbot.connector.exchange.bing_x.bing_x_api_order_book_data_source import BingXAPIOrderBookDataSource
+from hummingbot.connector.exchange.bing_x.bing_x_exchange import BingXExchange
+from hummingbot.connector.exchange.bitmart import bitmart_constants as BITMART_CONSTANTS
+from hummingbot.connector.exchange.bitmart.bitmart_api_order_book_data_source import BitmartAPIOrderBookDataSource
+from hummingbot.connector.exchange.bitmart.bitmart_exchange import BitmartExchange
+from hummingbot.connector.exchange.bybit import bybit_constants as BYBIT_CONSTANTS
+from hummingbot.connector.exchange.bybit.bybit_api_order_book_data_source import BybitAPIOrderBookDataSource
+from hummingbot.connector.exchange.bybit.bybit_exchange import BybitExchange
+from hummingbot.connector.exchange.gate_io import gate_io_constants as GATE_IO_CONSTANTS
+from hummingbot.connector.exchange.gate_io.gate_io_api_order_book_data_source import GateIoAPIOrderBookDataSource
+from hummingbot.connector.exchange.gate_io.gate_io_exchange import GateIoExchange
+from hummingbot.connector.exchange.kucoin import kucoin_constants as KUCOIN_CONSTANTS
+from hummingbot.connector.exchange.kucoin.kucoin_api_order_book_data_source import KucoinAPIOrderBookDataSource
+from hummingbot.connector.exchange.kucoin.kucoin_exchange import KucoinExchange
+from hummingbot.connector.exchange.mexc import mexc_constants as MEXC_CONSTANTS
+from hummingbot.connector.exchange.mexc.mexc_api_order_book_data_source import MexcAPIOrderBookDataSource
+from hummingbot.connector.exchange.mexc.mexc_exchange import MexcExchange
+from hummingbot.connector.exchange.okx import okx_constants as OKX_CONSTANTS
+from hummingbot.connector.exchange.okx.okx_api_order_book_data_source import OkxAPIOrderBookDataSource
+from hummingbot.connector.exchange.okx.okx_exchange import OkxExchange
+from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
+from hummingbot.core.data_type.order_book_tracker import OrderBookTracker
+from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
+from hummingbot.fluxlayer_api.get_chain_gas import get_btc_fee, get_gas_prices, get_solana_fee
+from hummingbot.logger import HummingbotLogger
 
 current_file_path = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))

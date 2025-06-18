@@ -1,7 +1,8 @@
 import os
-import requests
-from typing import Any, List
 from dataclasses import dataclass
+from typing import Any, List
+
+import requests
 
 
 @dataclass

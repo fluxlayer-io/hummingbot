@@ -848,7 +848,8 @@ class BitcoinAdapter(ChainAdapter):
                 witness_list = []
 
                 import hashlib
-                from bitcoin.core.script import OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG
+
+                from bitcoin.core.script import OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160
 
                 pubkey_hash = hashlib.new('ripemd160', hashlib.sha256(private_key_obj.pub).digest()).digest()
                 redeem_script = CScript([OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG])
@@ -964,7 +965,7 @@ class BitcoinAdapter(ChainAdapter):
 
             elif address.startswith(('3', '2')):
                 # P2SH 地址 - 允许 Nested SegWit
-                from bitcoin.core.script import OP_HASH160, OP_EQUAL
+                from bitcoin.core.script import OP_EQUAL, OP_HASH160
                 from bitcoin.wallet import P2SHBitcoinAddress
 
                 try:

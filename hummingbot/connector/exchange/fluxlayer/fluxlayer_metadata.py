@@ -1,7 +1,8 @@
-from typing import Dict
 from decimal import Decimal
+from typing import Dict
 
 from pydantic import BaseModel
+
 
 class TradingPairMetadata(BaseModel):
     source_chain: str

@@ -857,6 +857,7 @@ class BitcoinAdapter(ChainAdapter):
 
                     # P2SH-P2WPKH: 创建内层的 P2WPKH redeemScript
                     import hashlib
+
                     from bitcoin.core.script import OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160
 
                     # 计算公钥哈希
@@ -992,7 +993,7 @@ class BitcoinAdapter(ChainAdapter):
 
             elif address.startswith(('3', '2')):
                 # P2SH 地址 - 支持 P2SH-P2WPKH (Nested SegWit)
-                from bitcoin.core.script import OP_HASH160, OP_EQUAL
+                from bitcoin.core.script import OP_EQUAL, OP_HASH160
                 from bitcoin.wallet import P2SHBitcoinAddress
 
                 try:
@@ -1010,9 +1011,9 @@ class BitcoinAdapter(ChainAdapter):
                         try:
                             from bitcoin.base58 import b58decode_check
                         except ImportError:
-                            from bitcoin.segwit_addr import bech32_decode
                             # 如果没有 b58decode_check，使用 base58 库
                             import base58
+                            from bitcoin.segwit_addr import bech32_decode
                             addr_bytes = base58.b58decode_check(address)
                         else:
                             addr_bytes = b58decode_check(address)
