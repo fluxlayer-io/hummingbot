@@ -559,7 +559,6 @@ class FluxlayerExchange(ExchangePyBase):
     async def get_quote_price(self, trading_pair: str, is_buy: bool, amount: Decimal) -> Optional[Decimal]:
         """获取交易对的报价"""
         try:
-
             pair_meta = self.metadata.trading_pairs[trading_pair]
             print(pair_meta)
             params = {
@@ -583,6 +582,9 @@ class FluxlayerExchange(ExchangePyBase):
 
             if response and "target_price" in response:
                 price = Decimal(str(response["target_price"]))
+                self.metadata.trading_pairs[trading_pair].target_amount = Decimal(str(response["target_amount"]))
+                self.metadata.trading_pairs[trading_pair].source_amount = Decimal(str(response["source_amount"]))
+                self.metadata.trading_pairs[trading_pair].is_buy = is_buy
                 return price
             else:
                 self.logger().error(f"Failed to get quote price, response: {response}")

@@ -400,7 +400,7 @@ def calculate_gas_fee(chain: str):
     if chain.upper() == "BTC":
         btc_fee = get_btc_fee()
         return "BTC", btc_fee["regular"] * 0.00000001  # 转换为BTC
-    elif chain == "Solana":
+    elif chain == "SOL":
         # {"gasPrice": 0.5, "gasPriceToken": "SOL", "gasLimit": 200000, "gasCost": 0.000105}
         data = get_solana_fee()
         return "SOL", data["gasCost"]
@@ -572,8 +572,10 @@ async def get_generic_rfq_request(
                     FROM solvers
                     WHERE $1 = ANY (supported_network)
                         AND $2 = ANY (supported_network)
-                        AND (supported_asset -> $1) ? $3
-                        AND (supported_asset -> $2) ? $4
+                        AND supported_asset ? $1
+                        AND supported_asset ? $2
+                        AND supported_asset -> $1 ? $3
+                        AND supported_asset -> $2 ? $4
                     """
             _logger.error("Executing SQL:\n%s\nWith params: %s, %s, %s, %s",
                           query.strip(), source_chain, target_chain, source_token, target_token)

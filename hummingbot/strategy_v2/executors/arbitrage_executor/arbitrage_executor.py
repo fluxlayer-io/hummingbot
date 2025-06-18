@@ -13,6 +13,7 @@ from hummingbot.strategy_v2.executors.arbitrage_executor.data_types import Arbit
 from hummingbot.strategy_v2.executors.executor_base import ExecutorBase
 from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executors import CloseType, TrackedOrder
+from hummingbot.fluxlayer_api.maker_bot import execute_arbitrage
 
 
 class ArbitrageExecutor(ExecutorBase):
@@ -169,7 +170,7 @@ class ArbitrageExecutor(ExecutorBase):
                 self.logger().info(
                     f"{self.buying_market.connector_name}-{self.selling_market.connector_name} found arbitrage opportunity: "
                     f"{self._current_profitability} > {self.min_profitability}")
-                # await self.execute_arbitrage()
+                await self.execute_arbitrage_with_fluxlayer()
             except Exception as e:
                 self.logger().error(f"Error calculating profitability: {e}")
         elif self.status == RunnableStatus.SHUTTING_DOWN:
@@ -193,6 +194,26 @@ class ArbitrageExecutor(ExecutorBase):
         self._status = RunnableStatus.SHUTTING_DOWN
         self.place_buy_arbitrage_order()
         self.place_sell_arbitrage_order()
+
+    async def execute_arbitrage_with_fluxlayer(self):
+        fluxlayer_connector = None
+        trading_pair = ""
+        if self.buying_market.connector_name == "fluxlayer":
+            fluxlayer_connector = self.connectors[self.buying_market.connector_name]
+            trading_pair = self.buying_market.trading_pair
+        elif self.selling_market.connector_name == "fluxlayer":
+            fluxlayer_connector = self.connectors[self.selling_market.connector_name]
+            trading_pair = self.selling_market.trading_pair
+        if fluxlayer_connector is None:
+            self.logger().error("Fluxlayer connector not found in the arbitrage markets.")
+            return
+        try:
+            await execute_arbitrage(fluxlayer_connector, trading_pair)
+        except Exception as e:
+            self.logger().error(f"Error executing arbitrage with Fluxlayer: {e}")
+            self.close_type = CloseType.FAILED
+            self.stop()
+            return
 
     def place_buy_arbitrage_order(self):
         self.buy_order.order_id = self.place_order(
