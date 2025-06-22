@@ -71,9 +71,10 @@ def get_private_key_from_env(chain: str) -> Optional[str]:
     """从环境变量获取私钥"""
     env_vars = {
         "SOL": ["SOL_PRIVATE_KEY", "SOLANA_PRIVATE_KEY"],
-        # "BTC": ["BTC_PRIVATE_KEY", "BITCOIN_PRIVATE_KEY"],
+        "BTC": ["BTC_PRIVATE_KEY", "BITCOIN_PRIVATE_KEY"],
         "XTN": ["XTN_PRIVATE_KEY", "XTON_PRIVATE_KEY", "BTC_PRIVATE_KEY", "BITCOIN_PRIVATE_KEY"],  # XTN 可以使用 BTC 私钥
         "ETH": ["ETH_PRIVATE_KEY", "ETHEREUM_PRIVATE_KEY"],
+        "SIGNET_BTC": ["SIGNET_PRIVATE_KEY", "BTC_PRIVATE_KEY", "BITCOIN_PRIVATE_KEY"],  # XTN 可以使用 BTC 私钥
     }
 
     possible_vars = env_vars.get(chain, [f"{chain}_PRIVATE_KEY"])
@@ -86,31 +87,6 @@ def get_private_key_from_env(chain: str) -> Optional[str]:
 
     logger.error(f"❌ 未找到 {chain} 私钥，请设置环境变量：{' 或 '.join(possible_vars)}")
     return None
-
-
-# Mock FluxLayer Exchange Metadata
-class MockMetadata:
-    def __init__(self):
-        self.trading_pairs = {
-            "XTN-USDC": MockPairMeta()
-        }
-        self.target_amount = 0.001
-        self.source_amount = 0.0001
-        self.is_buy = False
-
-
-class MockPairMeta:
-    def __init__(self):
-        self.source_chain = "SOL"
-        self.target_chain = "XTN"
-        self.source_token = "USDC"
-        self.target_token = "XTN"
-
-
-class MockFluxLayerExchange:
-    def __init__(self):
-        self.metadata = MockMetadata()
-
 
 class ChainAdapter:
     def get_address_from_private_key(self, private_key: str) -> str:
@@ -135,6 +111,7 @@ class SolanaAdapter(ChainAdapter):
                 secret_key = bytes(json.loads(private_key))
             elif len(private_key) in [87, 88] and all(
                     c in '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz' for c in private_key):
+
                 secret_key = base58.b58decode(private_key)
             else:
                 secret_key = b64decode(private_key)
@@ -158,6 +135,7 @@ class SolanaAdapter(ChainAdapter):
                 secret = bytes(json.loads(private_key))
             elif len(private_key) in [87, 88] and all(
                     c in '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz' for c in private_key):
+
                 secret = base58.b58decode(private_key)
             else:
                 secret = b64decode(private_key)
@@ -462,8 +440,10 @@ class BitcoinAdapter(ChainAdapter):
         elif network == "testnet4":
             bitcoin.SelectParams('testnet')  # 使用 testnet 参数
             # testnet4 需要使用专门的 API
-            self.api_base = "https://mempool.space/testnet4/api"
-            self.explorer_url = "https://mempool.space/testnet4/tx"
+            # self.api_base = "https://mempool.space/testnet4/api"
+            self.api_base = "https://mempool.space/signet/api"
+            self.explorer_url = "https://mempool.space/signet/tx"
+            # self.explorer_url = "https://mempool.space/testnet4/tx"
 
         logger.info(f"🌐 Bitcoin适配器初始化: {network}")
         if network == "testnet4":
@@ -646,7 +626,7 @@ class BitcoinAdapter(ChainAdapter):
                     'txid': utxo['txid'],
                     'vout': utxo['vout'],
                     'value': utxo['value'],  # satoshis
-                    # Blockstream / mempool 返回字段 scriptpubkey
+                    # Blockstream / mempool API 字段名均为 scriptpubkey
                     'scriptPubKey': utxo.get('scriptpubkey', '')
                 })
                 logger.info(f"  - UTXO: {utxo['txid']}:{utxo['vout']} = {utxo['value']} sats")
@@ -719,11 +699,6 @@ class BitcoinAdapter(ChainAdapter):
     async def transfer_token(self, private_key: str, to_address: str, amount: str, token: str = "BTC") -> str:
         """执行Bitcoin转账"""
         try:
-            # 支持的代币检查
-            supported_tokens = ["BTC", "XTN"]
-            if token not in supported_tokens:
-                raise ValueError(f"Bitcoin适配器不支持代币: {token}，支持的代币: {supported_tokens}")
-
             # XTN在testnet3上等同于BTC的处理方式
             display_token = token
             logger.info(f"🔄 Bitcoin转账 ({self.network}): {amount} {display_token} 到 {to_address}")
@@ -841,28 +816,46 @@ class BitcoinAdapter(ChainAdapter):
                 tx.wit = CTxWitness(witness_list)
 
             elif from_address_type == "p2sh":
-                # P2SH-P2WPKH Nested SegWit
+                # P2SH-P2WPKH (Nested SegWit) 签名
                 logger.info("✍️ 使用 P2SH-P2WPKH (Nested SegWit) 签名方法")
 
+                # 创建 witness 列表
                 from bitcoin.core import CScriptWitness, CTxInWitness, CTxWitness
                 witness_list = []
 
-                import hashlib
-
-                from bitcoin.core.script import OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160
-
-                pubkey_hash = hashlib.new('ripemd160', hashlib.sha256(private_key_obj.pub).digest()).digest()
-                redeem_script = CScript([OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG])
-                p2wpkh_script = CScript([OP_0, pubkey_hash])
-
-                for i,(txin,utxo) in enumerate(zip(txins,selected_utxos)):
+                # 签名每个输入
+                for i, (txin, utxo) in enumerate(zip(txins, selected_utxos)):
                     logger.info(f"✍️ 签名输入 {i} (P2SH-P2WPKH)")
+
+                    # P2SH-P2WPKH: 创建内层的 P2WPKH redeemScript
+                    import hashlib
+
+                    from bitcoin.core.script import OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160
+
+                    # 计算公钥哈希
+                    pubkey_hash = hashlib.new('ripemd160', hashlib.sha256(private_key_obj.pub).digest()).digest()
+
+                    # 创建 P2WPKH redeemScript (这将作为 P2SH 的 redeemScript)
+                    p2wpkh_script = CScript([OP_0, pubkey_hash])
+
+                    # 对于 P2SH-P2WPKH，redeemScript 是 P2WPKH 格式
+                    redeem_script = CScript([OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG])
+
+                    # 使用 SegWit 签名方法
                     sighash = SignatureHash(redeem_script, tx, i, SIGHASH_ALL, utxo['value'], SIGVERSION_WITNESS_V0)
+
+                    # 签名
                     signature = private_key_obj.sign(sighash) + bytes([SIGHASH_ALL])
+
+                    # P2SH-P2WPKH: scriptSig 包含 redeemScript
+                    # 对于 P2SH-P2WPKH，scriptSig 只包含内层的 P2WPKH script
                     txin.scriptSig = CScript([p2wpkh_script])
+
+                    # 创建 witness (和普通 P2WPKH 相同)
                     script_witness = CScriptWitness([signature, private_key_obj.pub])
                     witness_list.append(CTxInWitness(script_witness))
 
+                # 设置整个交易的 witness
                 tx.wit = CTxWitness(witness_list)
 
             else:
@@ -890,10 +883,11 @@ class BitcoinAdapter(ChainAdapter):
 
             logger.info("✍️ 交易已签名")
 
-            # 序列化交易（带 witness）
+            # 序列化交易（必须包含 witness）
             try:
-                tx_hex = b2x(tx.serialize_with_witness())
+                tx_hex = b2x(tx.serialize_with_witness())  # 新版 API
             except AttributeError:
+                # 老版库直接 serialize() 已包含 witness
                 tx_hex = b2x(tx.serialize())
 
             # 广播交易
@@ -951,11 +945,17 @@ class BitcoinAdapter(ChainAdapter):
 
             if address.startswith(('1', 'm', 'n')):
                 # Legacy P2PKH 地址
-                from bitcoin.base58 import b58decode_check
                 from bitcoin.core.script import OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160
 
-                # 解码 Base58Check 地址
-                addr_bytes = b58decode_check(address)
+                # 解码 Base58Check 地址 - 使用兼容的导入方式
+                try:
+                    from bitcoin.base58 import b58decode_check
+                    addr_bytes = b58decode_check(address)
+                except ImportError:
+                    # 如果没有 b58decode_check，使用 base58 库
+                    import base58
+                    addr_bytes = base58.b58decode_check(address)
+
                 pubkey_hash = addr_bytes[1:]  # 去掉版本字节
 
                 # 创建 P2PKH scriptPubKey: OP_DUP OP_HASH160 <pubkey_hash> OP_EQUALVERIFY OP_CHECKSIG
@@ -964,31 +964,40 @@ class BitcoinAdapter(ChainAdapter):
                 return script
 
             elif address.startswith(('3', '2')):
-                # P2SH 地址 - 允许 Nested SegWit
+                # P2SH 地址 - 支持 P2SH-P2WPKH (Nested SegWit)
                 from bitcoin.core.script import OP_EQUAL, OP_HASH160
                 from bitcoin.wallet import P2SHBitcoinAddress
 
                 try:
+                    # 使用 python-bitcoinlib 的 P2SHBitcoinAddress 类
                     p2sh_addr = P2SHBitcoinAddress(address)
                     script = p2sh_addr.to_scriptPubKey()
                     logger.info(f"✅ 创建 P2SH scriptPubKey for {address}")
                     return script
                 except Exception as addr_error:
                     logger.warning(f"⚠️ P2SHBitcoinAddress 解析失败，尝试手动解析: {addr_error}")
+
+                    # 备用方案：手动解析 Base58Check 地址
                     try:
+                        # 使用不同的导入方式
                         try:
                             from bitcoin.base58 import b58decode_check
-                            addr_bytes = b58decode_check(address)
                         except ImportError:
+                            # 如果没有 b58decode_check，使用 base58 库
                             import base58
+                            from bitcoin.segwit_addr import bech32_decode
                             addr_bytes = base58.b58decode_check(address)
+                        else:
+                            addr_bytes = b58decode_check(address)
 
-                        script_hash = addr_bytes[1:]
+                        script_hash = addr_bytes[1:]  # 去掉版本字节
+
+                        # 创建 P2SH scriptPubKey: OP_HASH160 <20-byte-script-hash> OP_EQUAL
                         script = CScript([OP_HASH160, script_hash, OP_EQUAL])
                         logger.info(f"✅ 手动创建 P2SH scriptPubKey for {address}")
                         return script
                     except Exception as manual_error:
-                        logger.error(f"❌ 手动解析 P2SH 地址失败: {manual_error}")
+                        logger.error(f"❌ 手动解析 P2SH 地址也失败: {manual_error}")
                         raise ValueError(f"P2SH 地址解析失败: {address}")
 
             elif address.startswith(('bc1', 'tb1')):
@@ -1201,6 +1210,7 @@ class ArbitrageExecutor:
             "SOL": SolanaAdapter(),
             "BTC": BitcoinAdapter(network=network),
             "XTN": BitcoinAdapter(network=network),
+            "SIGNET_BTC": BitcoinAdapter(network=network),
         }
 
     def get_adapter(self, chain: str) -> ChainAdapter:
@@ -1216,7 +1226,7 @@ class ArbitrageExecutor:
             mpc_client = MPCClient()
             maker_orders = mpc_client.list_maker_orders()
             pending_maker_orders = next(
-                (order for order in maker_orders if order.fulfill_status == 'pending'),
+                (order for order in maker_orders if order.fulfill_status == 'pending' and order.maker_tx_hash == "860a383b1ba7bbeb4444d83029a4b1063024d347eecb7fc14a2f7871d443a5cd"),
                 None
             )
             if pending_maker_orders:
@@ -1249,40 +1259,43 @@ class ArbitrageExecutor:
 
                     # 获取 MPC 存款地址
                     logger.info(f"🔍 查找MPC存款地址 for {source_chain_for_taker}...")
-                    mpc_deposit_addr = mpc_client.find_mpc_addr(src_addr, source_chain_for_taker)
-                    logger.info(f"🏦 MPC {source_chain_for_taker} 存款地址: {mpc_deposit_addr}")
+                    if source_chain_for_taker == "SOL":
+                        mpc_deposit_addr = mpc_client.find_mpc_addr(src_addr, source_chain_for_taker)
+                    else:
+                        mpc_addresses = mpc_client.list_mpc_addr(src_addr, source_chain_for_taker)
+                        mpc_deposit_addr = ""
+                        for addr in mpc_addresses:
+                            if addr.encoding == "ENCODING_P2SH_P2WPKH":
+                                mpc_deposit_addr = addr.address
+                                break
 
-                    # 验证 MPC 地址格式
-                    try:
-                        if source_chain_for_taker == "SOL":
-                            PublicKey(mpc_deposit_addr)
-                            logger.info("✅ MPC地址格式有效")
-                    except Exception as e:
-                        logger.error(f"❌ 无效的MPC地址格式: {e}")
+                    if not mpc_deposit_addr:
+                        logger.error(f"❌ 未找到MPC存款地址 for {source_chain_for_taker}")
                         return
+
+                    logger.info(f"🏦 MPC {source_chain_for_taker} 存款地址: {mpc_deposit_addr}")
 
                     # 估算交易费用
                     logger.info("💰 估算交易费用...")
                     try:
-                        token_id = source_token_for_taker
-                        if source_chain_for_taker != source_token_for_taker:
-                            token_id = source_chain_for_taker + "_" + source_token_for_taker
-                        fee = mpc_client.estimate_tx_fee(wallet_id, token_id, i_amount_for_taker, mpc_deposit_addr)
+                        fee = mpc_client.estimate_tx_fee(wallet_id, source_token_for_taker, i_amount_for_taker, mpc_deposit_addr)
                         total_deposit = float(i_amount_for_taker) + float(fee)
                         logger.info(f"💸 估算费用: {fee} {source_token_for_taker}")
                         logger.info(f"💰 总存款需求: {total_deposit} {source_token_for_taker} ({i_amount_for_taker} + {fee} 费用)")
                     except Exception as e:
-                        logger.warning(f"⚠️ 费用估算失败: {e}, 使用默认费用")
-                        fee = 0.001 if source_token_for_taker == "SOL" else 0
-                        total_deposit = float(i_amount_for_taker) + fee
+                        logger.warning(f"⚠️ 费用估算失败: {e}")
+                        return
 
                     # 执行代币转账到 MPC 地址
                     logger.info(f"🔄 开始转账到MPC地址...")
+                    transfer_token = ""
+                    if source_chain_for_taker != source_token_for_taker and source_token_for_taker.startswith(source_chain_for_taker):
+                        transfer_token = source_token_for_taker.split("_")[1]  # 处理如 "SOL_USDC" 的情况
                     tx_hash = await src_adapter.transfer_token(
                         private_key=private_key,
                         to_address=mpc_deposit_addr,
                         amount=str(total_deposit),
-                        token=source_token_for_taker
+                        token=transfer_token
                     )
 
                     if not tx_hash:
@@ -1334,9 +1347,20 @@ async def execute_arbitrage_with_fluxlayer():
     await executor.execute_arbitrage()
 
 
+async def main1():
+    mpc_client = MPCClient()
+    result = mpc_client.create_taker_order(
+        order_id="9a16f797-6dc5-4eda-a8eb-76a3151dbb39",
+        tx_hash="SDkj5hkWywUnpACbAquDWqsygFYfqKokk3pZ3NQxodGAnAMHL7j1m3DSzvXd78ZKZvSXGn3dXvRDC5g2bRkanyg"
+    )
+    logger.info(f"✅ Taker订单创建成功: {result}")
+
+
+
 if __name__ == "__main__":
     async def main():
         await execute_arbitrage_with_fluxlayer()
+        # await main1()
 
 
     asyncio.run(main())

@@ -95,17 +95,17 @@ class MockMetadata:
         self.trading_pairs = {
             "BTC-USDC": MockPairMeta()
         }
-        self.target_amount = 0.001
-        self.source_amount = 0.0001
-        self.is_buy = False
 
 
 class MockPairMeta:
     def __init__(self):
-        self.source_chain = "SOL"
-        self.target_chain = "SIGNET_BTC"
-        self.source_token = "USDC"
-        self.target_token = "SIGNET_BTC"
+        self.source_chain = "SIGNET_BTC"
+        self.target_chain = "SOL"
+        self.source_token = "SIGNET_BTC"
+        self.target_token = "SOL_USDC"
+        self.is_buy = True
+        self.target_amount = 0.001
+        self.source_amount = 0.0001
 
 
 class MockFluxLayerExchange:
@@ -136,6 +136,7 @@ class SolanaAdapter(ChainAdapter):
                 secret_key = bytes(json.loads(private_key))
             elif len(private_key) in [87, 88] and all(
                     c in '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz' for c in private_key):
+
                 secret_key = base58.b58decode(private_key)
             else:
                 secret_key = b64decode(private_key)
@@ -159,6 +160,7 @@ class SolanaAdapter(ChainAdapter):
                 secret = bytes(json.loads(private_key))
             elif len(private_key) in [87, 88] and all(
                     c in '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz' for c in private_key):
+
                 secret = base58.b58decode(private_key)
             else:
                 secret = b64decode(private_key)
@@ -374,14 +376,9 @@ class SolanaAdapter(ChainAdapter):
                 logger.info(f"🔍 交易指令数量: {len(tx.instructions)}")
                 logger.info(f"🔍 交易blockhash: {tx.recent_blockhash}")
 
-                # 序列化交易（必须包含 witness）
-                try:
-                    tx_hex = b2x(tx.serialize_with_witness())  # 新版 API
-                except AttributeError:
-                    # 老版库直接 serialize() 已包含 witness
-                    tx_hex = b2x(tx.serialize())
-
-                logger.info(f"📦 交易字节长度: {len(tx_hex)}")
+                # 序列化交易为字节
+                tx_bytes = tx.serialize()
+                logger.info(f"📦 交易字节长度: {len(tx_bytes)}")
 
                 # 使用 send_raw_transaction 发送已序列化的交易
                 # 手动构建 sendTransaction RPC 请求
@@ -394,7 +391,7 @@ class SolanaAdapter(ChainAdapter):
                     "id": 1,
                     "method": "sendTransaction",
                     "params": [
-                        base64.b64encode(tx_hex).decode('utf-8'),  # 交易的base64编码
+                        base64.b64encode(tx_bytes).decode('utf-8'),  # 交易的base64编码
                         {
                             "skipPreflight": False,
                             "preflightCommitment": "confirmed",
@@ -1270,6 +1267,13 @@ class ArbitrageExecutor:
                 o_amount = pair_meta.target_amount
                 direction = "SELL"
 
+            if src_chain == "SIGNET_BTC":
+                i_amount = 0.00000546
+                o_amount = 0.000001
+            else:
+                i_amount = 0.000001
+                o_amount = 0.00000546
+
             # 从环境变量获取Solana私钥
             private_key = get_private_key_from_env(src_chain)
 
@@ -1302,41 +1306,45 @@ class ArbitrageExecutor:
 
             # 获取 MPC 存款地址
             logger.info(f"🔍 查找MPC存款地址 for {src_chain}...")
-            mpc_addresses = mpc_client.list_mpc_addr(src_addr, src_chain)
-
-            mpc_deposit_addr = ""
-
-            for addr in mpc_addresses:
-                if addr.encoding == "ENCODING_P2SH_P2WPKH":
-                    mpc_deposit_addr = addr.address
-                    break
+            if src_chain == "SOL":
+                mpc_deposit_addr = mpc_client.find_mpc_addr(src_addr, src_chain)
+            else:
+                mpc_addresses = mpc_client.list_mpc_addr(src_addr, src_chain)
+                mpc_deposit_addr = ""
+                for addr in mpc_addresses:
+                    if addr.encoding == "ENCODING_P2SH_P2WPKH":
+                        mpc_deposit_addr = addr.address
+                        break
+            if not mpc_deposit_addr:
+                logger.error(f"❌ 未找到MPC存款地址 for {src_chain}")
+                return
 
             logger.info(f"🏦 MPC {src_chain} 存款地址: {mpc_deposit_addr}")
 
             # 估算交易费用
             logger.info("💰 估算交易费用...")
             try:
-                token_id = i_token
-                if src_chain != i_token:
-                    token_id = src_chain + "_" + i_token
-                fee = mpc_client.estimate_tx_fee(wallet_id, token_id, i_amount, mpc_deposit_addr)
+                fee = mpc_client.estimate_tx_fee(wallet_id, i_token, i_amount, mpc_deposit_addr)
                 total_deposit = float(i_amount) + float(fee)
                 logger.info(f"💸 估算费用: {fee} {i_token}")
                 logger.info(f"💰 总存款需求: {total_deposit} {i_token} ({i_amount} + {fee} 费用)")
             except Exception as e:
-                logger.warning(f"⚠️ 费用估算失败: {e}, 使用默认费用")
-                fee = 0.001 if i_token == "SOL" else 0
-                total_deposit = float(i_amount) + fee
+                logger.warning(f"⚠️ 费用估算失败: {e}")
+                return
 
             # 执行代币转账到 MPC 地址
             logger.info(f"🔄 开始转账到MPC地址...")
-            # tx_hash = await src_adapter.transfer_token(
-            #     private_key=private_key,
-            #     to_address=mpc_deposit_addr,
-            #     amount=str(total_deposit),
-            #     token=i_token
-            # )
-            tx_hash = "6bfd0998165ab71d5f2d392c5183877669d7a465a950f753341cb346dd8242e8"
+
+            transfer_token = ""
+            if src_chain != i_token and i_token.startswith(src_chain):
+                transfer_token = i_token.split("_")[1]  # 处理如 "SOL_USDC" 的情况
+
+            tx_hash = await src_adapter.transfer_token(
+                private_key=private_key,
+                to_address=mpc_deposit_addr,
+                amount=str(total_deposit),
+                token=transfer_token
+            )
 
             if not tx_hash:
                 logger.error(f"❌ 转账到MPC地址失败")
