@@ -145,7 +145,7 @@ cdef class LimitOrder:
             str retval = cpp_position.decode("utf8")
         return PositionAction(retval)
 
-    cdef long long c_age_til(self, long long end_timestamp):
+    cdef int c_age_til(self, long long end_timestamp):
         """
         Calculates and returns age of the order since it was created til end_timestamp in seconds
         :param end_timestamp: The end timestamp
@@ -157,7 +157,7 @@ cdef class LimitOrder:
         elif len(self.client_order_id) > 16 and self.client_order_id[-16:].isnumeric():
             start_timestamp = int(self.client_order_id[-16:])
         if 0 < start_timestamp < end_timestamp:
-            return int(end_timestamp - start_timestamp) / 1e6
+            return int((end_timestamp - start_timestamp) // 1_000_000)
         else:
             return -1
 
