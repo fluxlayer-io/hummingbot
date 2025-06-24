@@ -1226,7 +1226,7 @@ class ArbitrageExecutor:
             mpc_client = MPCClient()
             maker_orders = mpc_client.list_maker_orders()
             pending_maker_orders = next(
-                (order for order in maker_orders if order.fulfill_status == 'pending' and order.maker_tx_hash == "860a383b1ba7bbeb4444d83029a4b1063024d347eecb7fc14a2f7871d443a5cd"),
+                (order for order in maker_orders if order.fulfill_status == 'pending'),
                 None
             )
             if pending_maker_orders:
@@ -1288,7 +1288,7 @@ class ArbitrageExecutor:
 
                     # 执行代币转账到 MPC 地址
                     logger.info(f"🔄 开始转账到MPC地址...")
-                    transfer_token = ""
+                    transfer_token = source_token_for_taker
                     if source_chain_for_taker != source_token_for_taker and source_token_for_taker.startswith(source_chain_for_taker):
                         transfer_token = source_token_for_taker.split("_")[1]  # 处理如 "SOL_USDC" 的情况
                     tx_hash = await src_adapter.transfer_token(

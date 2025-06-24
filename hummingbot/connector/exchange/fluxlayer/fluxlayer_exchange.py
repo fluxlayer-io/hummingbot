@@ -556,17 +556,30 @@ class FluxlayerExchange(ExchangePyBase):
 
         return float(resp_json["lastPrice"])
 
+    def extract_chain_or_token(self, name: str) -> str:
+        """
+        从形如 'ETH_Mainnet' 或 'Mainnet' 的字符串中提取后半部分。
+        如果只有一段，则返回该段；否则返回第二段。
+        """
+        parts = name.split("_")
+        return parts[0] if len(parts) == 1 else parts[1]
+
     async def get_quote_price(self, trading_pair: str, is_buy: bool, amount: Decimal) -> Optional[Decimal]:
         """获取交易对的报价"""
         try:
             pair_meta = self.metadata.trading_pairs[trading_pair]
-            print(pair_meta)
+
+            source_chain = self.extract_chain_or_token(pair_meta.source_chain)
+            target_chain = self.extract_chain_or_token(pair_meta.target_chain)
+            source_token = self.extract_chain_or_token(pair_meta.source_token)
+            target_token = self.extract_chain_or_token(pair_meta.target_token)
+
             params = {
-                "source_chain": pair_meta.source_chain,
-                "source_token": pair_meta.source_token,
+                "source_chain": source_chain,
+                "source_token": source_token,
                 "amount": float(self.metadata.amount),  # JSON 要求 float
-                "target_chain": pair_meta.target_chain,
-                "target_token": pair_meta.target_token,
+                "target_chain": target_chain,
+                "target_token": target_token,
                 "is_buy": is_buy,
             }
 

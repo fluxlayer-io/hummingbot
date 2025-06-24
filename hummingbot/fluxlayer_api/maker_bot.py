@@ -1335,7 +1335,7 @@ class ArbitrageExecutor:
             # 执行代币转账到 MPC 地址
             logger.info(f"🔄 开始转账到MPC地址...")
 
-            transfer_token = ""
+            transfer_token = i_token
             if src_chain != i_token and i_token.startswith(src_chain):
                 transfer_token = i_token.split("_")[1]  # 处理如 "SOL_USDC" 的情况
 
@@ -1418,6 +1418,5 @@ async def execute_arbitrage(fluxlayer_exchange, trading_pair: str = "BTC-USDC"):
 if __name__ == "__main__":
     async def main():
         await execute_arbitrage_with_fluxlayer("BTC-USDC")
-
 
     asyncio.run(main())
