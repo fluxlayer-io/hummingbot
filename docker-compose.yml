@@ -1,7 +1,7 @@
 services:
   hummingbot:
     container_name: hummingbot
-    image: hummingbot/hummingbot:latest
+    image: fluxlayer/hummingbot
     build:  # Uncomment this and comment image if you want to build it locally
       context: .
       dockerfile: Dockerfile
@@ -24,22 +24,73 @@ services:
     tty: true
     stdin_open: true
     network_mode: host
-#    environment:
+    environment:
+      - RFQ_SERVER_HOST=http://localhost:15889
+      - BEST_RFQ_SERVER_HOST=http://localhost:15886
+      - MPC_API_HOST=http://localhost:15887
 #      - CONFIG_PASSWORD=a
 #      - CONFIG_FILE_NAME=v2_with_controllers.py
 #      - SCRIPT_CONFIG=conf_v2_with_controllers.yml
 
-  # gateway:
-  #  restart: always
-  #  container_name: gateway
-  #  image: hummingbot/gateway:latest
-  #  ports:
-  #    - "15888:15888"
-  #    - "8080:8080"
-  #  volumes:
-  #    - "./gateway_files/conf:/home/gateway/conf"
-  #    - "./gateway_files/logs:/home/gateway/logs"
-  #    - "./gateway_files/db:/home/gateway/db"
-  #    - "./certs:/home/gateway/certs"
-  #  environment:
-  #    - GATEWAY_PASSPHRASE=a
+  gateway:
+    restart: always
+    container_name: gateway
+    image: fluxlayer/gateway:development
+    ports:
+      - "15885:15885"
+      - "8080:8080"
+    volumes:
+      - "./gateway_files/conf:/home/gateway/conf"
+      - "./gateway_files/logs:/home/gateway/logs"
+      - "./gateway_files/db:/home/gateway/db"
+      - "./certs:/home/gateway/certs"
+    environment:
+      - GATEWAY_PASSPHRASE=a
+
+  rfq_server:
+    restart: always
+    container_name: rfq_server
+    image: fluxlayer/rfq:latest
+    ports:
+      - "15889:15889"
+    volumes:
+      - "./certs:/home/gateway/certs"
+    environment:
+      - RFQ_SERVER_HOST=http://localhost:15885
+      - BEST_RFQ_SERVER_HOST=http://localhost:15886
+      - MPC_API_HOST=http://localhost:15887
+
+  best_rfq_server:
+    restart: always
+    container_name: best_rfq_server
+    image: fluxlayer/best_rfq:latest
+    ports:
+      - "15886:15886"
+    volumes:
+      - "./certs:/home/gateway/certs"
+    environment:
+      - RFQ_SERVER_HOST=http://localhost:15885
+      - BEST_RFQ_SERVER_HOST=http://localhost:15886
+      - MPC_API_HOST=http://localhost:15887
+
+  fluxlayer_mpc:
+    restart: always
+    container_name: fluxlayer_mpc
+    image: fluxlayer/mpc
+    ports:
+      - "15887:15887"
+    environment:
+      - DB_DSN=postgresql://postgres:postgres@194.233.73.90:5432/postgres
+  postgres:
+    image: postgres:latest
+    container_name: local_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/tmp/lib/postgresql/data
+volumes:
+  postgres_data:

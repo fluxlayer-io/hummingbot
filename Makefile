@@ -1,14 +1,21 @@
+ARCH := amd64
+OS := linux
+
 .ONESHELL:
 .PHONY: test
 .PHONY: run_coverage
 .PHONY: report_coverage
 .PHONY: development-diff-cover
 .PHONY: docker
+.PHONY: best-rfq
+.PHONY: rfq
 .PHONY: install
 .PHONY: uninstall
 .PHONY: clean
 .PHONY: build
 .PHONY: run-v2
+
+
 
 test:
 	coverage run -m pytest \
@@ -30,9 +37,14 @@ report_coverage:
 development-diff-cover:
 	coverage xml
 	diff-cover --compare-branch=origin/development coverage.xml
-
 docker:
-	git clean -xdf && make clean && docker build -t hummingbot/hummingbot${TAG} -f Dockerfile .
+	git clean -xdf && make clean && docker buildx build --platform ${OS}/${ARCH} -t fluxlayer/hummingbot${TAG} -f Dockerfile .
+
+best-rfq:
+	docker buildx build --platform ${OS}/${ARCH} -t fluxlayer/best_rfq${TAG} -f Dockerfile.best_rfq .
+
+rfq:
+	docker buildx build --platform ${OS}/${ARCH} -t fluxlayer/rfq${TAG} -f Dockerfile.rfq .
 
 clean:
 	./clean

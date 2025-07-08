@@ -1,7 +1,7 @@
+import os
 from typing import TypeVar
 
 import aiohttp
-import os
 
 from hummingbot.core.web_assistant.connections.rest_connection import RESTConnection
 from hummingbot.core.web_assistant.connections.ws_connection import WSConnection
