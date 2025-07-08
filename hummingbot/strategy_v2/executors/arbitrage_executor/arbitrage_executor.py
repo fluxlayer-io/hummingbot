@@ -1,7 +1,9 @@
 import asyncio
 import logging
+from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Union
+from zoneinfo import ZoneInfo
 
 from hummingbot.connector.utils import split_hb_trading_pair
 from hummingbot.core.data_type.common import OrderType, TradeType
@@ -163,14 +165,24 @@ class ArbitrageExecutor(ExecutorBase):
                 await self.update_trade_pnl_pct()
                 await self.update_tx_cost()
                 self._current_profitability = (self._trade_pnl_pct * self.order_amount - self._last_tx_cost) / self.order_amount
-                self.logger().info(f"buy market: {self.buying_market.connector_name}, price: {self._last_buy_price}, ")
-                self.logger().info(
-                    f"sell market: {self.selling_market.connector_name}, price: {self._last_sell_price}, ")
-                self.logger().info(f"order amount: {self.order_amount}")
-                self.logger().info(
-                    f"{self.buying_market.connector_name}-{self.selling_market.connector_name} found arbitrage opportunity: "
-                    f"{self._current_profitability} > {self.min_profitability}")
-                await self.execute_arbitrage_with_fluxlayer()
+                if self._current_profitability > 0:
+                    # Get current time in different timezones
+                    now = datetime.now()
+                    china_time = now.astimezone(ZoneInfo("Asia/Shanghai"))
+                    australia_time = now.astimezone(ZoneInfo("Australia/Sydney"))
+                    
+                    self.logger().info(f"=== ARBITRAGE OPPORTUNITY FOUND ===")
+                    self.logger().info(f"China Time (UTC+8): {china_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                    self.logger().info(f"Australia Time (Sydney): {australia_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                    self.logger().info(
+                        f"{self.buying_market.connector_name}-{self.selling_market.connector_name} found arbitrage opportunity: "
+                        f"_current_profitability: {self._current_profitability}")
+                    self.logger().info(f"buy market: {self.buying_market.connector_name}, price: {self._last_buy_price}, ")
+                    self.logger().info(
+                        f"sell market: {self.selling_market.connector_name}, price: {self._last_sell_price}, ")
+                    self.logger().info(f"order amount: {self.order_amount}")
+                    # await self.execute_arbitrage()
+                    # await self.execute_arbitrage_with_fluxlayer()
             except Exception as e:
                 self.logger().error(f"Error calculating profitability: {e}")
         elif self.status == RunnableStatus.SHUTTING_DOWN:
@@ -191,9 +203,14 @@ class ArbitrageExecutor(ExecutorBase):
             self.stop()
 
     async def execute_arbitrage(self):
-        self._status = RunnableStatus.SHUTTING_DOWN
-        self.place_buy_arbitrage_order()
-        self.place_sell_arbitrage_order()
+        # self._status = RunnableStatus.SHUTTING_DOWN
+        if self.selling_market.connector_name == "fluxlayer":
+            self.place_buy_arbitrage_order()
+        else:
+            self.place_sell_arbitrage_order()
+        await self.execute_arbitrage_with_fluxlayer()
+        # self.place_buy_arbitrage_order()
+        # self.place_sell_arbitrage_order()
 
     async def execute_arbitrage_with_fluxlayer(self):
         fluxlayer_connector = None

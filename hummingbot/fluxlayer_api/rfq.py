@@ -57,7 +57,6 @@ EXCHANGES = {
         "exchange_class": BinanceExchange,
         "data_source_class": BinanceAPIOrderBookDataSource,
         "constants": BINANCE_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "binance_api_key": "",
             "binance_api_secret": ""
@@ -67,27 +66,24 @@ EXCHANGES = {
         "exchange_class": GateIoExchange,
         "data_source_class": GateIoAPIOrderBookDataSource,
         "constants": GATE_IO_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "gate_io_api_key": "",
             "gate_io_secret_key": ""
         }
     },
-    "bybit": {
-        "exchange_class": BybitExchange,
-        "data_source_class": BybitAPIOrderBookDataSource,
-        "constants": BYBIT_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
-        "required_params": {
-            "bybit_api_key": "",
-            "bybit_api_secret": ""
-        }
-    },
+    # "bybit": {
+    #     "exchange_class": BybitExchange,
+    #     "data_source_class": BybitAPIOrderBookDataSource,
+    #     "constants": BYBIT_CONSTANTS,
+    #     "required_params": {
+    #         "bybit_api_key": "",
+    #         "bybit_api_secret": ""
+    #     }
+    # },
     "bing_x": {
         "exchange_class": BingXExchange,
         "data_source_class": BingXAPIOrderBookDataSource,
         "constants": BING_X_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "bingx_api_key": "",
             "bingx_api_secret": ""
@@ -97,7 +93,6 @@ EXCHANGES = {
         "exchange_class": KucoinExchange,
         "data_source_class": KucoinAPIOrderBookDataSource,
         "constants": KUCOIN_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "kucoin_api_key": "",
             "kucoin_passphrase": "",
@@ -108,7 +103,6 @@ EXCHANGES = {
         "exchange_class": BitmartExchange,
         "data_source_class": BitmartAPIOrderBookDataSource,
         "constants": BITMART_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "bitmart_api_key": "",
             "bitmart_secret_key": "",
@@ -119,7 +113,6 @@ EXCHANGES = {
         "exchange_class": OkxExchange,
         "data_source_class": OkxAPIOrderBookDataSource,
         "constants": OKX_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "okx_api_key": "",
             "okx_secret_key": "",
@@ -130,7 +123,6 @@ EXCHANGES = {
         "exchange_class": MexcExchange,
         "data_source_class": MexcAPIOrderBookDataSource,
         "constants": MEXC_CONSTANTS,
-        "proxy": "http://127.0.0.1:7897",
         "required_params": {
             "mexc_api_key": "",
             "mexc_api_secret": ""
@@ -187,13 +179,14 @@ async def initialize_exchange(exchange_name: str = "binance", trading_pairs: lis
                 # 创建 throttler
                 _throttler = AsyncThrottler(exchange_config["constants"].RATE_LIMITS)
 
+                proxy = os.environ.get("HTTP_PROXY")
                 # 创建带代理的 ClientSession
                 connector = TCPConnector(ssl=False)
                 _session = ClientSession(
                     connector=connector,
                     timeout=ClientTimeout(total=30),
                     trust_env=True,
-                    proxy=exchange_config["proxy"]
+                    proxy=proxy
                 )
 
                 # 创建 WebAssistantsFactory
@@ -474,12 +467,23 @@ async def get_single_exchange_rfq(
             return None
 
         average_price = analysis['average_price']
-        average_price = average_price * 1.001  # 0.1% 交易所手续费
+        # average_price = average_price * 1.001  # 0.1% 交易所手续费
         price_impact = analysis['price_impact']
-        if price_impact * 10000 > 10:  # fluxlayer 抽成
-            fluxlayer_price = average_price * 1.01
-        else:
-            fluxlayer_price = average_price * 1.004
+        fluxlayer_price = average_price
+        
+        # 根据买入/卖出操作调整价格
+        # if is_buy:
+        #     # 买入时，fluxlayer作为卖方，提高价格
+        #     if price_impact * 10000 > 10:  # fluxlayer 抽成
+        #         fluxlayer_price = average_price * 1.01
+        #     else:
+        #         fluxlayer_price = average_price * 1.004
+        # else:
+        #     # 卖出时，fluxlayer作为买方，降低价格
+        #     if price_impact * 10000 > 10:  # fluxlayer 抽成
+        #         fluxlayer_price = average_price / 1.01
+        #     else:
+        #         fluxlayer_price = average_price / 1.004
         # 计算target代币数量
         target_amount = net_value_usdt / fluxlayer_price
         # 统一使用 target_amount 作为键名

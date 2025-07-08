@@ -33,8 +33,7 @@ class MPCAddress:
 
 class MPCClient:
     def __init__(self, api_host: str = None):
-        # self.api_host = api_host or os.environ.get("API_HOST")
-        self.api_host = "http://127.0.0.1:8082"
+        self.api_host = api_host or os.environ.get("MPC_API_HOST")
         # self.api_host = "2kvAqkWZXcdoWXkVn3Ntrepsrp8jRBL9uJYRLLFU8DEY4jc1USkN8wiLoPFTLVMnaSQ9GfcuzZwShXFrccT6MrjL"
         if not self.api_host:
             raise ValueError("API_HOST must be provided as a parameter or environment variable.")

@@ -598,6 +598,7 @@ class FluxlayerExchange(ExchangePyBase):
                 self.metadata.trading_pairs[trading_pair].target_amount = Decimal(str(response["target_amount"]))
                 self.metadata.trading_pairs[trading_pair].source_amount = Decimal(str(response["source_amount"]))
                 self.metadata.trading_pairs[trading_pair].is_buy = is_buy
+                self.logger().info(f"best cex is {response["exchange"]}")
                 return price
             else:
                 self.logger().error(f"Failed to get quote price, response: {response}")

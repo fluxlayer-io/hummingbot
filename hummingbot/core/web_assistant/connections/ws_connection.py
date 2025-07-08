@@ -43,7 +43,7 @@ class WSConnection:
             "autoping": False,
             "heartbeat": ping_timeout,
             "max_msg_size": max_msg_size,
-            "proxy": "http://127.0.0.1:7897"
+            "proxy": ""
         }
         if proxy:
             ws_connect_kwargs["proxy"] = proxy

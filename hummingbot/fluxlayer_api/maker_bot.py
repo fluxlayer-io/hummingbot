@@ -12,9 +12,8 @@ import nacl.signing
 import requests
 from bitcoin.core import COIN, CMutableTransaction, CMutableTxIn, CMutableTxOut, COutPoint, b2x, lx
 from bitcoin.core.script import OP_0, SIGHASH_ALL, SIGVERSION_WITNESS_V0, CScript, SignatureHash
-from bitcoin.wallet import CBitcoinAddress, CBitcoinSecret, P2PKHBitcoinAddress, P2SHBitcoinAddress
+from bitcoin.wallet import CBitcoinSecret, P2PKHBitcoinAddress
 from solana.keypair import Keypair
-from solana.publickey import PublicKey
 from spl.token.constants import TOKEN_PROGRAM_ID
 from spl.token.instructions import TransferCheckedParams, transfer_checked
 

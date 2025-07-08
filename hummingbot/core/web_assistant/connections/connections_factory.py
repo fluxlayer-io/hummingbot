@@ -1,6 +1,7 @@
 from typing import TypeVar
 
 import aiohttp
+import os
 
 from hummingbot.core.web_assistant.connections.rest_connection import RESTConnection
 from hummingbot.core.web_assistant.connections.ws_connection import WSConnection
@@ -48,7 +49,8 @@ class ConnectionsFactory:
         Lazily create a shared aiohttp.ClientSession if not already available.
         """
         if self._shared_client is None:
-            self._shared_client = aiohttp.ClientSession(proxy="http://127.0.0.1:7897")
+            proxy = os.environ.get("HTTP_PROXY")
+            self._shared_client = aiohttp.ClientSession(proxy=proxy)
         return self._shared_client
 
     async def close(self) -> None:
