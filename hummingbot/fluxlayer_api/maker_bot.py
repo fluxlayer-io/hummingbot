@@ -98,9 +98,9 @@ class MockMetadata:
 
 class MockPairMeta:
     def __init__(self):
-        self.source_chain = "SIGNET_BTC"
+        self.source_chain = "BTC"
         self.target_chain = "SOL"
-        self.source_token = "SIGNET_BTC"
+        self.source_token = "BTC"
         self.target_token = "SOL_USDC"
         self.is_buy = True
         self.target_amount = 0.001
@@ -1266,12 +1266,15 @@ class ArbitrageExecutor:
                 o_amount = pair_meta.target_amount
                 direction = "SELL"
 
-            if src_chain == "SIGNET_BTC":
-                i_amount = 0.00000546
-                o_amount = 0.000001
-            else:
-                i_amount = 0.000001
-                o_amount = 0.00000546
+            # 只在开发环境下使用硬编码的测试金额
+            dev_mode = os.getenv("devMode", True)
+            if dev_mode:
+                if src_chain == "SOL":
+                    i_amount = 0.000001
+                    o_amount = 0.00000546
+                else:
+                    i_amount = 0.00000546
+                    o_amount = 0.000001
 
             # 从环境变量获取Solana私钥
             private_key = get_private_key_from_env(src_chain)
@@ -1405,12 +1408,16 @@ class ArbitrageExecutor:
 async def execute_arbitrage_with_fluxlayer(trading_pair: str = "BTC-USDC"):
     fluxlayer_exchange = MockFluxLayerExchange()
     # 创建套利执行器并执行
-    executor = ArbitrageExecutor(network="testnet4")
+    executor = ArbitrageExecutor(network="mainnet")
     await executor.execute_arbitrage(fluxlayer_exchange, trading_pair)
 
 async def execute_arbitrage(fluxlayer_exchange, trading_pair: str = "BTC-USDC"):
     # 创建套利执行器并执行
-    executor = ArbitrageExecutor(network="testnet4")
+    network = "mainnet"
+    dev_mode = os.getenv("devMode", True)
+    if dev_mode:
+        network = "testnet4"
+    executor = ArbitrageExecutor(network)
     await executor.execute_arbitrage(fluxlayer_exchange, trading_pair)
 
 
