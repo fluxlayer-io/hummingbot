@@ -1,7 +1,7 @@
 services:
   hummingbot:
     container_name: hummingbot
-    image: fluxlayer/hummingbot
+    image: 139.99.149.14:5000/fluxlayer/hummingbot
     build:  # Uncomment this and comment image if you want to build it locally
       context: .
       dockerfile: Dockerfile
@@ -35,9 +35,9 @@ services:
   gateway:
     restart: always
     container_name: gateway
-    image: fluxlayer/gateway:development
+    image: 139.99.149.14:5000/fluxlayer/gateway:development
     ports:
-      - "15885:15885"
+      - "15888:15888"
       - "8080:8080"
     volumes:
       - "./gateway_files/conf:/home/gateway/conf"
@@ -50,11 +50,12 @@ services:
   rfq_server:
     restart: always
     container_name: rfq_server
-    image: fluxlayer/rfq:latest
+    image: 139.99.149.14:5000/fluxlayer/rfq:latest
     ports:
       - "15889:15889"
     volumes:
       - "./certs:/home/gateway/certs"
+    network_mode: host
     environment:
       - RFQ_SERVER_HOST=http://localhost:15885
       - BEST_RFQ_SERVER_HOST=http://localhost:15886
@@ -63,7 +64,7 @@ services:
   best_rfq_server:
     restart: always
     container_name: best_rfq_server
-    image: fluxlayer/best_rfq:latest
+    image: 139.99.149.14:5000/fluxlayer/best_rfq:latest
     ports:
       - "15886:15886"
     volumes:
@@ -76,11 +77,15 @@ services:
   fluxlayer_mpc:
     restart: always
     container_name: fluxlayer_mpc
-    image: fluxlayer/mpc
+    image: 139.99.149.14:5000/fluxlayer/mpc
     ports:
       - "15887:15887"
+    network_mode: host
     environment:
-      - DB_DSN=postgresql://postgres:postgres@194.233.73.90:5432/postgres
+      - DB_DSN=postgresql://postgres:postgres@localhost:5432/postgres
+    volumes:
+      - ./api.yaml:/api/config-files/api.yaml
+
   postgres:
     image: postgres:latest
     container_name: local_postgres

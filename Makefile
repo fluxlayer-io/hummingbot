@@ -1,5 +1,6 @@
 ARCH := amd64
 OS := linux
+REGISTRY_HOST := 139.99.149.14:5000
 
 .ONESHELL:
 .PHONY: test
@@ -38,13 +39,13 @@ development-diff-cover:
 	coverage xml
 	diff-cover --compare-branch=origin/development coverage.xml
 docker:
-	git clean -xdf && make clean && docker buildx build --platform ${OS}/${ARCH} -t fluxlayer/hummingbot${TAG} -f Dockerfile .
+	git clean -xdf && make clean && docker buildx build --platform ${OS}/${ARCH} --load -t ${REGISTRY_HOST}/fluxlayer/hummingbot${TAG}  -f Dockerfile  .
 
 best-rfq:
-	docker buildx build --platform ${OS}/${ARCH} -t fluxlayer/best_rfq${TAG} -f Dockerfile.best_rfq .
+	docker buildx build --platform ${OS}/${ARCH} -t ${REGISTRY_HOST}/fluxlayer/best_rfq${TAG} --load -f Dockerfile.best_rfq .
 
 rfq:
-	docker buildx build --platform ${OS}/${ARCH} -t fluxlayer/rfq${TAG} -f Dockerfile.rfq .
+	docker buildx build --platform ${OS}/${ARCH} -t ${REGISTRY_HOST}/fluxlayer/rfq${TAG} --load -f Dockerfile.rfq .
 
 clean:
 	./clean
