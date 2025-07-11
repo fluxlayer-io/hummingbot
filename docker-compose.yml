@@ -43,9 +43,9 @@ services:
       - "./gateway_files/conf:/home/gateway/conf"
       - "./gateway_files/logs:/home/gateway/logs"
       - "./gateway_files/db:/home/gateway/db"
-      - "./certs:/home/gateway/certs"
     environment:
       - GATEWAY_PASSPHRASE=a
+      - DEV=true
 
   rfq_server:
     restart: always
@@ -53,8 +53,6 @@ services:
     image: 139.99.149.14:5000/fluxlayer/rfq:latest
     ports:
       - "15889:15889"
-    volumes:
-      - "./certs:/home/gateway/certs"
     network_mode: host
     environment:
       - RFQ_SERVER_HOST=http://localhost:15885
@@ -67,8 +65,6 @@ services:
     image: 139.99.149.14:5000/fluxlayer/best_rfq:latest
     ports:
       - "15886:15886"
-    volumes:
-      - "./certs:/home/hummingbot/certs"
     environment:
       - RFQ_SERVER_HOST=http://localhost:15885
       - BEST_RFQ_SERVER_HOST=http://localhost:15886

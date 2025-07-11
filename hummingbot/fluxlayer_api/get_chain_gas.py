@@ -66,7 +66,7 @@ def get_gas_prices(chain_name):
         }
 
 def get_solana_fee():
-    url = "https://localhost:15888/solana/estimate-gas"
+    url = "http://localhost:15888/solana/estimate-gas"
     headers = {"Content-Type": "application/json"}
 
     payload = {
@@ -76,19 +76,19 @@ def get_solana_fee():
     }
 
     # 写死的证书路径
-    cert = (
-        "/home/hummingbot/certs/client_cert.pem",  # 客户端证书
-        "/home/hummingbot/certs/client_key.pem"    # 客户端私钥
-    )
-    verify = "/home/hummingbot/certs/ca_cert.pem"  # CA 证书
+    # cert = (
+    #     "/home/hummingbot/certs/client_cert.pem",  # 客户端证书
+    #     "/home/hummingbot/certs/client_key.pem"    # 客户端私钥
+    # )
+    # verify = "/home/hummingbot/certs/ca_cert.pem"  # CA 证书
 
     try:
         response = requests.post(
             url,
             headers=headers,
             data=json.dumps(payload),
-            cert=cert,
-            verify=verify,  # 设置为 False 可跳过验证（不推荐）
+            # cert=cert,
+            # verify=verify,  # 设置为 False 可跳过验证（不推荐）
             timeout=10
         )
         data = response.json()
