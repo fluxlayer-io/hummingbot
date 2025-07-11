@@ -77,10 +77,10 @@ def get_solana_fee():
 
     # 写死的证书路径
     cert = (
-        "/Users/leo/project/fluxlayer/hummingbot/certs/client_cert.pem",  # 客户端证书
-        "/Users/leo/project/fluxlayer/hummingbot/certs/client_key.pem"    # 客户端私钥
+        "/home/hummingbot/certs/client_cert.pem",  # 客户端证书
+        "/home/hummingbot/certs/client_key.pem"    # 客户端私钥
     )
-    verify = "/Users/leo/project/fluxlayer/hummingbot/certs/ca_cert.pem"  # CA 证书
+    verify = "/home/hummingbot/certs/ca_cert.pem"  # CA 证书
 
     try:
         response = requests.post(
