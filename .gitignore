@@ -94,3 +94,4 @@ coverage.xml
 /**/.injective_cookie
 
 .env
+api.yaml
