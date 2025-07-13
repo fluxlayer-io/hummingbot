@@ -23,11 +23,12 @@ services:
         max-file: "5"
     tty: true
     stdin_open: true
-    network_mode: host
+    networks:
+      - fluxlayer_net
     environment:
-      - RFQ_SERVER_HOST=http://localhost:15889
-      - BEST_RFQ_SERVER_HOST=http://localhost:15886
-      - MPC_API_HOST=http://localhost:15887
+      - RFQ_SERVER_HOST=http://rfq_server:15889
+      - BEST_RFQ_SERVER_HOST=http://best_rfq_server:15886
+      - MPC_API_HOST=http://fluxlayer_mpc:15887
 #      - CONFIG_PASSWORD=a
 #      - CONFIG_FILE_NAME=v2_with_controllers.py
 #      - SCRIPT_CONFIG=conf_v2_with_controllers.yml
@@ -43,9 +44,11 @@ services:
       - "./gateway_files/conf:/home/gateway/conf"
       - "./gateway_files/logs:/home/gateway/logs"
       - "./gateway_files/db:/home/gateway/db"
+      - "./certs:/home/gateway/certs"
     environment:
       - GATEWAY_PASSPHRASE=a
-      - DEV=true
+    networks:
+      - fluxlayer_net
 
   rfq_server:
     restart: always
@@ -53,11 +56,17 @@ services:
     image: 139.99.149.14:5000/fluxlayer/rfq:latest
     ports:
       - "15889:15889"
-    network_mode: host
     environment:
-      - RFQ_SERVER_HOST=http://localhost:15885
-      - BEST_RFQ_SERVER_HOST=http://localhost:15886
-      - MPC_API_HOST=http://localhost:15887
+      - RFQ_SERVER_HOST=http://gateway:15885
+      - BEST_RFQ_SERVER_HOST=http://best_rfq_server:15886
+      - MPC_API_HOST=http://fluxlayer_mpc:15887
+      - PG_HOST=local_postgres
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres
+      - PG_DATABASE=postgres
+      - PG_PORT=5432
+    networks:
+      - fluxlayer_net
 
   best_rfq_server:
     restart: always
@@ -65,10 +74,14 @@ services:
     image: 139.99.149.14:5000/fluxlayer/best_rfq:latest
     ports:
       - "15886:15886"
+    volumes:
+      - "./certs:/home/hummingbot/certs"
     environment:
-      - RFQ_SERVER_HOST=http://localhost:15885
-      - BEST_RFQ_SERVER_HOST=http://localhost:15886
-      - MPC_API_HOST=http://localhost:15887
+      - RFQ_SERVER_HOST=http://gateway:15885
+      - BEST_RFQ_SERVER_HOST=http://best_rfq_server:15886
+      - MPC_API_HOST=http://fluxlayer_mpc:15887
+    networks:
+      - fluxlayer_net
 
   fluxlayer_mpc:
     restart: always
@@ -76,11 +89,12 @@ services:
     image: 139.99.149.14:5000/fluxlayer/mpc
     ports:
       - "15887:15887"
-    network_mode: host
     environment:
-      - DB_DSN=postgresql://postgres:postgres@localhost:5432/postgres
+      - DB_DSN=postgresql://postgres:postgres@local_postgres:5432/postgres
     volumes:
       - ./api.yaml:/api/config-files/api.yaml
+    networks:
+      - fluxlayer_net
 
   postgres:
     image: postgres:latest
@@ -94,5 +108,10 @@ services:
     volumes:
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - fluxlayer_net
+
 volumes:
   postgres_data:
+networks:
+  fluxlayer_net:

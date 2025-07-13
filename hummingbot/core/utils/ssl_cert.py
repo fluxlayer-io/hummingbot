@@ -23,7 +23,7 @@ CERT_SUBJECT = [
     x509.NameAttribute(NameOID.COMMON_NAME, 'localhost'),
 ]
 # Set alternative DNS
-SAN_DNS = [x509.DNSName('localhost')]
+SAN_DNS = [x509.DNSName('localhost'), x509.DNSName('gateway')]
 VALIDITY_DURATION = 365
 CONF_DIR_PATH = root_path() / "conf"
 

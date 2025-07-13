@@ -222,7 +222,7 @@ INSERT INTO public.solvers (name, email, api_endpoint, supported_network, suppor
 VALUES (
            'fluxlayer',
            'fluxlayer@gamil.com',
-           'http://localhost:15886/get_best_rfq',
+           'http://best_rfq_server:15886/get_best_rfq',
            ARRAY['BTC', '"SIGNET_BTC"', 'SOL'],
            '{
              "BTC": {"BTC": true},
