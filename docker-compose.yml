@@ -87,6 +87,8 @@ services:
     restart: always
     container_name: fluxlayer_mpc
     image: 139.99.149.14:5000/fluxlayer/mpc
+    depends_on:
+        - postgres
     ports:
       - "15887:15887"
     environment:
