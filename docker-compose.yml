@@ -37,9 +37,6 @@ services:
     restart: always
     container_name: gateway
     image: 139.99.149.14:5000/fluxlayer/gateway:development
-    ports:
-      - "15888:15888"
-      - "8080:8080"
     volumes:
       - "./gateway_files/conf:/home/gateway/conf"
       - "./gateway_files/logs:/home/gateway/logs"
@@ -54,8 +51,6 @@ services:
     restart: always
     container_name: rfq_server
     image: 139.99.149.14:5000/fluxlayer/rfq:latest
-    ports:
-      - "15889:15889"
     environment:
       - RFQ_SERVER_HOST=http://gateway:15885
       - BEST_RFQ_SERVER_HOST=http://best_rfq_server:15886
@@ -72,8 +67,6 @@ services:
     restart: always
     container_name: best_rfq_server
     image: 139.99.149.14:5000/fluxlayer/best_rfq:latest
-    ports:
-      - "15886:15886"
     volumes:
       - "./certs:/home/hummingbot/certs"
     environment:
@@ -89,8 +82,6 @@ services:
     image: 139.99.149.14:5000/fluxlayer/mpc
     depends_on:
         - postgres
-    ports:
-      - "15887:15887"
     environment:
       - DB_DSN=postgresql://postgres:postgres@local_postgres:5432/postgres
     volumes:
@@ -105,8 +96,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-    ports:
-      - "5432:5432"
     volumes:
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
       - postgres_data:/var/lib/postgresql/data
