@@ -1245,8 +1245,6 @@ class ArbitrageExecutor:
                     src_addr = src_adapter.get_address_from_private_key(private_key)
                     logger.info(f"👛 源地址 ({source_chain_for_taker}): {src_addr}")
 
-
-
                     # 检查或创建 MPC 钱包
                     logger.info("🔍 检查MPC钱包存在性...")
                     if not mpc_client.check_mpc_exists(src_addr):
@@ -1257,72 +1255,34 @@ class ArbitrageExecutor:
                         wallet_id = mpc_client.get_mpc_wallet_id(src_addr)
                         logger.info(f"✅ 找到现有MPC钱包，ID: {wallet_id}")
 
-                    # 获取 MPC 存款地址
-                    logger.info(f"🔍 查找MPC存款地址 for {source_chain_for_taker}...")
-                    if source_chain_for_taker == "SOL":
-                        mpc_deposit_addr = mpc_client.find_mpc_addr(src_addr, source_chain_for_taker)
+                    # 检查是否禁用转账
+                    disable_transfer = os.getenv("DISABLE_TRANSFER", "").lower() == "true"
+                    
+                    # 初始化 taker order 参数
+                    taker_order_params = {
+                        "order_id": order.order_id,
+                        "wallet_id": wallet_id
+                    }
+                    
+                    if disable_transfer:
+                        logger.info("🚫 DISABLE_TRANSFER=true，跳过转账和余额检查")
                     else:
-                        mpc_addresses = mpc_client.list_mpc_addr(src_addr, source_chain_for_taker)
-                        mpc_deposit_addr = ""
-                        for addr in mpc_addresses:
-                            if addr.encoding == "ENCODING_P2SH_P2WPKH":
-                                mpc_deposit_addr = addr.address
-                                break
-
-                    if not mpc_deposit_addr:
-                        logger.error(f"❌ 未找到MPC存款地址 for {source_chain_for_taker}")
-                        return
-
-                    logger.info(f"🏦 MPC {source_chain_for_taker} 存款地址: {mpc_deposit_addr}")
-
-                    # 估算交易费用
-                    logger.info("💰 估算交易费用...")
-                    try:
-                        fee = mpc_client.estimate_tx_fee(wallet_id, source_token_for_taker, i_amount_for_taker, mpc_deposit_addr)
-                        total_deposit = float(i_amount_for_taker) + float(fee)
-                        logger.info(f"💸 估算费用: {fee} {source_token_for_taker}")
-                        logger.info(f"💰 总存款需求: {total_deposit} {source_token_for_taker} ({i_amount_for_taker} + {fee} 费用)")
-                    except Exception as e:
-                        logger.warning(f"⚠️ 费用估算失败: {e}")
-                        return
-
-                    # 执行代币转账到 MPC 地址
-                    logger.info(f"🔄 开始转账到MPC地址...")
-                    transfer_token = source_token_for_taker
-                    if source_chain_for_taker != source_token_for_taker and source_token_for_taker.startswith(source_chain_for_taker):
-                        transfer_token = source_token_for_taker.split("_")[1]  # 处理如 "SOL_USDC" 的情况
-                    tx_hash = await src_adapter.transfer_token(
-                        private_key=private_key,
-                        to_address=mpc_deposit_addr,
-                        amount=str(total_deposit),
-                        token=transfer_token
-                    )
-
-                    if not tx_hash:
-                        logger.error(f"❌ 转账到MPC地址失败")
-                        return
-
-                    logger.info(f"✅ 存款交易完成: {tx_hash}")
-
-                    # 签名目标订单
-                    logger.info("✍️ 签名taker订单...")
-                    try:
-                        sig = src_adapter.sign_message(private_key, "taker transfer".encode("utf-8"))
-                        logger.info(f"✅ 订单签名生成: {sig[:16]}...")
-                    except Exception as e:
-                        logger.error(f"❌ 订单签名失败: {e}")
-                        return
+                        # 执行转账相关逻辑
+                        await self._execute_transfer_logic(
+                            mpc_client, src_adapter, private_key, src_addr, source_chain_for_taker,
+                            source_token_for_taker, i_amount_for_taker, wallet_id, taker_order_params
+                        )
+                        
+                        # 如果转账逻辑执行失败，taker_order_params 会被清空
+                        if not taker_order_params:
+                            return
 
                     # 创建taker订单
                     logger.info("🔨 创建taker订单...")
-                    logger.info(f"📋 订单参数:")
-                    logger.info(f"   tx_hash: {tx_hash}")
+                    logger.info(f"📋 订单参数: {list(taker_order_params.keys())}")
 
                     try:
-                        result = mpc_client.create_taker_order(
-                            order_id=order.order_id,
-                            tx_hash=tx_hash
-                        )
+                        result = mpc_client.create_taker_order(**taker_order_params)
                         logger.info(f"✅ Taker订单创建成功: {result}")
 
                     except Exception as e:
@@ -1341,26 +1301,91 @@ class ArbitrageExecutor:
             import traceback
             traceback.print_exc()
 
+    async def _execute_transfer_logic(self, mpc_client, src_adapter, private_key, src_addr, 
+                                    source_chain_for_taker, source_token_for_taker, i_amount_for_taker, 
+                                    wallet_id, taker_order_params):
+        """执行转账相关逻辑"""
+        try:
+            # 获取 MPC 存款地址
+            logger.info(f"🔍 查找MPC存款地址 for {source_chain_for_taker}...")
+            if source_chain_for_taker == "SOL":
+                mpc_deposit_addr = mpc_client.find_mpc_addr(src_addr, source_chain_for_taker)
+            else:
+                mpc_addresses = mpc_client.list_mpc_addr(src_addr, source_chain_for_taker)
+                mpc_deposit_addr = ""
+                for addr in mpc_addresses:
+                    if addr.encoding == "ENCODING_P2SH_P2WPKH":
+                        mpc_deposit_addr = addr.address
+                        break
+
+            if not mpc_deposit_addr:
+                logger.error(f"❌ 未找到MPC存款地址 for {source_chain_for_taker}")
+                taker_order_params.clear()
+                return
+
+            logger.info(f"🏦 MPC {source_chain_for_taker} 存款地址: {mpc_deposit_addr}")
+
+            # 估算交易费用
+            logger.info("💰 估算交易费用...")
+            try:
+                fee = mpc_client.estimate_tx_fee(wallet_id, source_token_for_taker, i_amount_for_taker, mpc_deposit_addr)
+                total_deposit = float(i_amount_for_taker) + float(fee)
+                logger.info(f"💸 估算费用: {fee} {source_token_for_taker}")
+                logger.info(f"💰 总存款需求: {total_deposit} {source_token_for_taker} ({i_amount_for_taker} + {fee} 费用)")
+            except Exception as e:
+                logger.warning(f"⚠️ 费用估算失败: {e}")
+                taker_order_params.clear()
+                return
+
+            # 执行代币转账到 MPC 地址
+            logger.info(f"🔄 开始转账到MPC地址...")
+            transfer_token = source_token_for_taker
+            if source_chain_for_taker != source_token_for_taker and source_token_for_taker.startswith(source_chain_for_taker):
+                transfer_token = source_token_for_taker.split("_")[1]  # 处理如 "SOL_USDC" 的情况
+            tx_hash = await src_adapter.transfer_token(
+                private_key=private_key,
+                to_address=mpc_deposit_addr,
+                amount=str(total_deposit),
+                token=transfer_token
+            )
+
+            if not tx_hash:
+                logger.error(f"❌ 转账到MPC地址失败")
+                taker_order_params.clear()
+                return
+
+            logger.info(f"✅ 存款交易完成: {tx_hash}")
+
+            # 签名目标订单
+            logger.info("✍️ 签名taker订单...")
+            try:
+                sig = src_adapter.sign_message(private_key, "taker transfer".encode("utf-8"))
+                logger.info(f"✅ 订单签名生成: {sig[:16]}...")
+            except Exception as e:
+                logger.error(f"❌ 订单签名失败: {e}")
+                taker_order_params.clear()
+                return
+
+            # 更新 taker order 参数
+            taker_order_params.update({
+                "tx_hash": tx_hash
+            })
+
+        except Exception as e:
+            logger.error(f"❌ 转账逻辑执行失败: {e}")
+            taker_order_params.clear()
+            return
+
 
 async def execute_arbitrage_with_fluxlayer():
-    executor = ArbitrageExecutor(network="testnet4")
+    network = "mainnet"
+    dev_mode = os.getenv("devMode", True)
+    if dev_mode:
+        network = "testnet4"
+    executor = ArbitrageExecutor(network=network)
     await executor.execute_arbitrage()
-
-
-async def main1():
-    mpc_client = MPCClient()
-    result = mpc_client.create_taker_order(
-        order_id="9a16f797-6dc5-4eda-a8eb-76a3151dbb39",
-        tx_hash="SDkj5hkWywUnpACbAquDWqsygFYfqKokk3pZ3NQxodGAnAMHL7j1m3DSzvXd78ZKZvSXGn3dXvRDC5g2bRkanyg"
-    )
-    logger.info(f"✅ Taker订单创建成功: {result}")
-
-
 
 if __name__ == "__main__":
     async def main():
         await execute_arbitrage_with_fluxlayer()
-        # await main1()
-
-
     asyncio.run(main())

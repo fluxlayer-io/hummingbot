@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Optional, Any, List
 
 import requests
 
@@ -75,19 +75,33 @@ class MPCClient:
             "toAddr": to_addr
         })
 
-    def create_maker_order(self, tx_hash: str, src_chain: str, target_chain: str,
-                           i_token: str, i_amount: str, o_token: str, o_amount: str, slippage: str, sig: str) -> Any:
-        return self._post("/maker-orders", {
-            "txHash": tx_hash,
+    def create_maker_order(
+            self,
+            src_chain: str,
+            target_chain: str,
+            i_token: str,
+            i_amount: str,
+            o_token: str,
+            o_amount: str,
+            wallet_id: str,
+            tx_hash: Optional[str] = "fake",
+            slippage: Optional[str] = "0.001",
+            sig: Optional[str] = "fake"
+    ) -> Any:
+        payload = {
             "srcChain": src_chain,
             "targetChain": target_chain,
             "iToken": i_token,
             "iAmount": i_amount,
             "oToken": o_token,
             "oAmount": o_amount,
+            "walletId": wallet_id,
+            "txHash": tx_hash,
             "slippage": slippage,
             "sig": sig
-        })
+        }
+
+        return self._post("/maker-orders", payload)
 
     def list_maker_orders(self) -> List[MakerOrder]:
         url = f"{self.api_host}/maker-orders"
@@ -99,8 +113,9 @@ class MPCClient:
 
         return [MakerOrder(**item) for item in data]
 
-    def create_taker_order(self, order_id: str, tx_hash: str) -> Any:
+    def create_taker_order(self, order_id: str, wallet_id: str, tx_hash: Optional[str] = "fake") -> Any:
         return self._post("/taker-orders", {
             "orderId": order_id,
-            "txHash": tx_hash
+            "txHash": tx_hash,
+            "walletId": wallet_id
         })

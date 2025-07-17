@@ -1267,7 +1267,7 @@ class ArbitrageExecutor:
                 direction = "SELL"
 
             # 只在开发环境下使用硬编码的测试金额
-            dev_mode = os.getenv("devMode", True)
+            dev_mode = os.getenv("devMode", "").lower() == "true"
             if dev_mode:
                 if src_chain == "SOL":
                     i_amount = 0.000001
@@ -1306,6 +1306,65 @@ class ArbitrageExecutor:
                 wallet_id = mpc_client.get_mpc_wallet_id(src_addr)
                 logger.info(f"✅ 找到现有MPC钱包，ID: {wallet_id}")
 
+            # 检查是否禁用转账
+            disable_transfer = os.getenv("DISABLE_TRANSFER", "").lower() == "true"
+            
+            # 初始化 maker order 参数
+            maker_order_params = {"wallet_id": wallet_id}
+            
+            if disable_transfer:
+                logger.info("🚫 DISABLE_TRANSFER=true，跳过转账和余额检查")
+                # 添加必要的参数
+                maker_order_params.update({
+                    "tx_hash": "fake",
+                    "src_chain": src_chain,
+                    "target_chain": target_chain,
+                    "i_token": i_token,
+                    "i_amount": str(i_amount),
+                    "o_token": o_token,
+                    "o_amount": str(o_amount)
+                })
+            else:
+                # 执行转账相关逻辑
+                await self._execute_transfer_logic(
+                    mpc_client, src_adapter, private_key, src_addr, src_chain, 
+                    target_chain, i_token, o_token, i_amount, o_amount, 
+                    wallet_id, maker_order_params
+                )
+                
+                # 如果转账逻辑执行失败，maker_order_params 会被清空
+                if not maker_order_params:
+                    return
+
+            # 创建maker订单
+            logger.info("🔨 创建maker订单...")
+            logger.info(f"📋 订单参数: {list(maker_order_params.keys())}")
+            
+            try:
+                result = mpc_client.create_maker_order(**maker_order_params)
+                logger.info(f"✅ Maker订单创建成功: {result}")
+
+            except Exception as e:
+                logger.error(f"❌ Maker订单创建失败: {e}")
+                # 如果是requests异常，打印响应内容
+                if hasattr(e, 'response'):
+                    try:
+                        error_detail = e.response.json()
+                        logger.error(f"❌ 错误详情: {error_detail}")
+                    except:
+                        logger.error(f"❌ 响应内容: {e.response.text}")
+                return
+
+        except Exception as e:
+            logger.error(f"💥 套利执行失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    async def _execute_transfer_logic(self, mpc_client, src_adapter, private_key, src_addr, 
+                                    src_chain, target_chain, i_token, o_token, i_amount, 
+                                    o_amount, wallet_id, maker_order_params):
+        """执行转账相关逻辑"""
+        try:
             # 获取 MPC 存款地址
             logger.info(f"🔍 查找MPC存款地址 for {src_chain}...")
             if src_chain == "SOL":
@@ -1319,6 +1378,7 @@ class ArbitrageExecutor:
                         break
             if not mpc_deposit_addr:
                 logger.error(f"❌ 未找到MPC存款地址 for {src_chain}")
+                maker_order_params.clear()
                 return
 
             logger.info(f"🏦 MPC {src_chain} 存款地址: {mpc_deposit_addr}")
@@ -1332,6 +1392,7 @@ class ArbitrageExecutor:
                 logger.info(f"💰 总存款需求: {total_deposit} {i_token} ({i_amount} + {fee} 费用)")
             except Exception as e:
                 logger.warning(f"⚠️ 费用估算失败: {e}")
+                maker_order_params.clear()
                 return
 
             # 执行代币转账到 MPC 地址
@@ -1350,6 +1411,7 @@ class ArbitrageExecutor:
 
             if not tx_hash:
                 logger.error(f"❌ 转账到MPC地址失败")
+                maker_order_params.clear()
                 return
 
             logger.info(f"✅ 存款交易完成: {tx_hash}")
@@ -1362,47 +1424,26 @@ class ArbitrageExecutor:
                 logger.info(f"✅ 订单签名生成: {sig[:16]}...")
             except Exception as e:
                 logger.error(f"❌ 订单签名失败: {e}")
+                maker_order_params.clear()
                 return
 
-            # 创建maker订单
-            logger.info("🔨 创建maker订单...")
-            logger.info(f"📋 订单参数:")
-            logger.info(f"   tx_hash: {tx_hash}")
-            logger.info(f"   src_chain: {src_chain}")
-            logger.info(f"   target_chain: {target_chain}")
-            logger.info(f"   o_token: {o_token}")
-            logger.info(f"   slippage: 0.01")
-            logger.info(f"   sig: {sig[:32]}...")
-
-            try:
-                result = mpc_client.create_maker_order(
-                    tx_hash=tx_hash,
-                    src_chain=src_chain,
-                    target_chain=target_chain,
-                    i_token=i_token,
-                    i_amount=str(i_amount),
-                    o_token=o_token,
-                    o_amount=str(o_amount),  # 确保是字符串
-                    slippage="0.01",
-                    sig=sig
-                )
-                logger.info(f"✅ Maker订单创建成功: {result}")
-
-            except Exception as e:
-                logger.error(f"❌ Maker订单创建失败: {e}")
-                # 如果是requests异常，打印响应内容
-                if hasattr(e, 'response'):
-                    try:
-                        error_detail = e.response.json()
-                        logger.error(f"❌ 错误详情: {error_detail}")
-                    except:
-                        logger.error(f"❌ 响应内容: {e.response.text}")
-                return
+            # 更新 maker order 参数
+            maker_order_params.update({
+                "tx_hash": tx_hash,
+                "src_chain": src_chain,
+                "target_chain": target_chain,
+                "i_token": i_token,
+                "i_amount": str(i_amount),
+                "o_token": o_token,
+                "o_amount": str(o_amount),
+                "slippage": "0.01",
+                "sig": sig
+            })
 
         except Exception as e:
-            logger.error(f"💥 套利执行失败: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"❌ 转账逻辑执行失败: {e}")
+            maker_order_params.clear()
+            return
 
 
 async def execute_arbitrage_with_fluxlayer(trading_pair: str = "BTC-USDC"):
