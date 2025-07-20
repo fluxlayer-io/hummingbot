@@ -78,6 +78,18 @@ services:
     networks:
       - fluxlayer_net
 
+  taker_bot:
+    restart: always
+    container_name: taker_bot
+    image: 139.99.149.14:5000/fluxlayer/taker:latest
+    environment:
+      - MPC_API_HOST=http://fluxlayer_mpc:15887
+      - DISABLE_TRANSFER=true
+      - DEV_MODE=false
+      - TAKER_INTERVAL_SECONDS=60
+    networks:
+      - fluxlayer_net
+
   fluxlayer_mpc:
     restart: always
     container_name: fluxlayer_mpc
