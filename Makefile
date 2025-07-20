@@ -10,6 +10,7 @@ REGISTRY_HOST := 139.99.149.14:5000
 .PHONY: docker
 .PHONY: best-rfq
 .PHONY: rfq
+.PHONY: taker
 .PHONY: install
 .PHONY: uninstall
 .PHONY: clean
@@ -46,6 +47,9 @@ best-rfq:
 
 rfq:
 	docker buildx build --platform ${OS}/${ARCH} -t ${REGISTRY_HOST}/fluxlayer/rfq${TAG} --load -f Dockerfile.rfq .
+
+taker:
+	docker buildx build --platform ${OS}/${ARCH} -t ${REGISTRY_HOST}/fluxlayer/taker${TAG} --load -f Dockerfile.taker .
 
 clean:
 	./clean
