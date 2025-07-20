@@ -1379,7 +1379,7 @@ class ArbitrageExecutor:
 
 async def execute_arbitrage_with_fluxlayer():
     network = "mainnet"
-    dev_mode = os.getenv("devMode", True)
+    dev_mode = os.getenv("DEV_MODE", "").lower() == "true"
     if dev_mode:
         network = "testnet4"
     executor = ArbitrageExecutor(network=network)
@@ -1387,5 +1387,22 @@ async def execute_arbitrage_with_fluxlayer():
 
 if __name__ == "__main__":
     async def main():
-        await execute_arbitrage_with_fluxlayer()
+        # 获取执行间隔，默认60秒（1分钟）
+        interval_seconds = int(os.getenv("TAKER_INTERVAL_SECONDS", "60"))
+        logger.info(f"🕐 Taker定时执行已启动，执行间隔: {interval_seconds}秒")
+        
+        while True:
+            try:
+                logger.info(f"🚀 开始执行Taker套利逻辑...")
+                await execute_arbitrage_with_fluxlayer()
+                logger.info(f"✅ Taker套利逻辑执行完成")
+            except Exception as e:
+                logger.error(f"❌ Taker套利执行失败: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # 等待指定间隔后再次执行
+            logger.info(f"⏳ 等待 {interval_seconds} 秒后再次执行...")
+            await asyncio.sleep(interval_seconds)
+            
     asyncio.run(main())

@@ -29,6 +29,8 @@ services:
       - RFQ_SERVER_HOST=http://rfq_server:15889
       - BEST_RFQ_SERVER_HOST=http://best_rfq_server:15886
       - MPC_API_HOST=http://fluxlayer_mpc:15887
+      - DISABLE_TRANSFER=true
+      - DEV_MODE=false
 #      - CONFIG_PASSWORD=a
 #      - CONFIG_FILE_NAME=v2_with_controllers.py
 #      - SCRIPT_CONFIG=conf_v2_with_controllers.yml

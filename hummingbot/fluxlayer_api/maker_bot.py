@@ -1267,7 +1267,7 @@ class ArbitrageExecutor:
                 direction = "SELL"
 
             # 只在开发环境下使用硬编码的测试金额
-            dev_mode = os.getenv("devMode", "").lower() == "true"
+            dev_mode = os.getenv("DEV_MODE", "").lower() == "true"
             if dev_mode:
                 if src_chain == "SOL":
                     i_amount = 0.000001
@@ -1455,7 +1455,7 @@ async def execute_arbitrage_with_fluxlayer(trading_pair: str = "BTC-USDC"):
 async def execute_arbitrage(fluxlayer_exchange, trading_pair: str = "BTC-USDC"):
     # 创建套利执行器并执行
     network = "mainnet"
-    dev_mode = os.getenv("devMode", True)
+    dev_mode = os.getenv("DEV_MODE", True)
     if dev_mode:
         network = "testnet4"
     executor = ArbitrageExecutor(network)
