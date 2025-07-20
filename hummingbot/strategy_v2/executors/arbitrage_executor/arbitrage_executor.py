@@ -181,8 +181,8 @@ class ArbitrageExecutor(ExecutorBase):
                     self.logger().info(
                         f"sell market: {self.selling_market.connector_name}, price: {self._last_sell_price}, ")
                     self.logger().info(f"order amount: {self.order_amount}")
-                    # await self.execute_arbitrage()
-                    # await self.execute_arbitrage_with_fluxlayer()
+                    await self.execute_arbitrage()
+                    await self.execute_arbitrage_with_fluxlayer()
             except Exception as e:
                 self.logger().error(f"Error calculating profitability: {e}")
         elif self.status == RunnableStatus.SHUTTING_DOWN:
