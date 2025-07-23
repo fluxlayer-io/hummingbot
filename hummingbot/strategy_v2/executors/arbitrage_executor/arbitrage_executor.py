@@ -165,7 +165,7 @@ class ArbitrageExecutor(ExecutorBase):
                 await self.update_trade_pnl_pct()
                 await self.update_tx_cost()
                 self._current_profitability = (self._trade_pnl_pct * self.order_amount - self._last_tx_cost) / self.order_amount
-                if self._current_profitability > 0:
+                if self._current_profitability > self.min_profitability:
                     # Get current time in different timezones
                     now = datetime.now()
                     china_time = now.astimezone(ZoneInfo("Asia/Shanghai"))
