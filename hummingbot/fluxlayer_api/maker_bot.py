@@ -2,8 +2,15 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from base64 import b64decode
 from typing import Optional
+
+# 添加项目根目录到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 import base58
 import bitcoin
@@ -18,6 +25,26 @@ from spl.token.constants import TOKEN_PROGRAM_ID
 from spl.token.instructions import TransferCheckedParams, transfer_checked
 
 from hummingbot.fluxlayer_api.mpc_client import MPCClient
+from hummingbot.logger import HummingbotLogger
+
+# Logger 配置 - 使用 hummingbot 框架标准方式
+_logger = None
+
+def get_logger() -> HummingbotLogger:
+    global _logger
+    if _logger is None:
+        _logger = logging.getLogger(__name__)
+    return _logger
+
+# 简化日志函数 - 使用框架标准方式
+def log_info(msg):
+    get_logger().info(msg)
+
+def log_error(msg):
+    get_logger().error(msg)
+
+def log_warning(msg):
+    get_logger().warning(msg)
 
 # 基于 const.ts 的代币地址映射
 TOKEN_MAPPINGS = {
@@ -60,8 +87,8 @@ TOKEN_MAPPINGS = {
 }
 
 # 简单 Logger 配置
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("Fluxlayer Arbitrage Executor")
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger("Fluxlayer Arbitrage Executor")
 
 
 # ========== 简单私钥获取函数 ==========
@@ -81,10 +108,10 @@ def get_private_key_from_env(chain: str) -> Optional[str]:
     for var_name in possible_vars:
         private_key = os.getenv(var_name)
         if private_key and private_key.strip():
-            logger.info(f"🔑 从环境变量 {var_name} 获取 {chain} 私钥")
+            log_info(f"🔑 从环境变量 {var_name} 获取 {chain} 私钥")
             return private_key.strip()
 
-    logger.error(f"❌ 未找到 {chain} 私钥，请设置环境变量：{' 或 '.join(possible_vars)}")
+    log_error(f"❌ 未找到 {chain} 私钥，请设置环境变量：{' 或 '.join(possible_vars)}")
     return None
 
 
@@ -199,10 +226,10 @@ class SolanaAdapter(ChainAdapter):
         for endpoint in rpc_endpoints:
             try:
                 client = AsyncClient(endpoint)
-                logger.info(f"🔗 使用RPC端点: {endpoint}")
+                log_info(f"🔗 使用RPC端点: {endpoint}")
                 break
             except Exception as e:
-                logger.warning(f"⚠️ RPC端点 {endpoint} 连接失败: {e}")
+                log_warning(f"⚠️ RPC端点 {endpoint} 连接失败: {e}")
                 continue
 
         if not client:
@@ -212,7 +239,7 @@ class SolanaAdapter(ChainAdapter):
         TOKEN_MINTS = TOKEN_MAPPINGS.get("SOL", {})
 
         try:
-            logger.info(f"🔄 转账: {amount} {token} 从私钥钱包到 {to_address}")
+            log_info(f"🔄 转账: {amount} {token} 从私钥钱包到 {to_address}")
 
             # 解析私钥
             if len(private_key) in [87, 88]:
@@ -222,8 +249,8 @@ class SolanaAdapter(ChainAdapter):
 
             sender = Keypair.from_secret_key(secret)
             recipient = PublicKey(to_address)
-            logger.info(f"💳 发送方地址: {sender.public_key}")
-            logger.info(f"🏦 接收方地址: {recipient}")
+            log_info(f"💳 发送方地址: {sender.public_key}")
+            log_info(f"🏦 接收方地址: {recipient}")
 
             # 获取latest blockhash
             import httpx
@@ -245,20 +272,20 @@ class SolanaAdapter(ChainAdapter):
                     )
 
                     result = response.json()
-                    logger.info(f"📡 Latest blockhash response: {result}")
+                    log_info(f"📡 Latest blockhash response: {result}")
 
                     if 'result' in result and result['result'] is not None:
                         value = result['result']['value']
                         if 'blockhash' in value:
                             blockhash = value['blockhash']
-                            logger.info(f"📡 获取到最新blockhash: {blockhash}")
+                            log_info(f"📡 获取到最新blockhash: {blockhash}")
                         else:
                             raise Exception(f"响应中没有blockhash: {value}")
                     else:
                         raise Exception(f"getLatestBlockhash请求失败: {result}")
 
             except Exception as e:
-                logger.error(f"❌ Failed to get latest blockhash: {e}")
+                log_error(f"❌ Failed to get latest blockhash: {e}")
                 raise
 
             # 创建交易
@@ -267,13 +294,13 @@ class SolanaAdapter(ChainAdapter):
             if token == "SOL":
                 # 原生SOL转账
                 amount_lamports = int(float(amount) * 1_000_000_000)
-                logger.info(f"💰 转账金额: {amount} SOL ({amount_lamports} lamports)")
+                log_info(f"💰 转账金额: {amount} SOL ({amount_lamports} lamports)")
 
                 # 检查余额
                 balance_resp = await client.get_balance(sender.public_key)
                 if 'result' in balance_resp and balance_resp['result'] is not None:
                     balance = balance_resp['result']['value']
-                    logger.info(f"💵 发送方余额: {balance / 1_000_000_000:.6f} SOL")
+                    log_info(f"💵 发送方余额: {balance / 1_000_000_000:.6f} SOL")
                 else:
                     raise Exception(f"Failed to get balance: {balance_resp}")
 
@@ -295,7 +322,7 @@ class SolanaAdapter(ChainAdapter):
                 decimals = 6 if token in ["USDC", "USDT"] else 6
                 token_amount = int(float(amount) * (10 ** decimals))
 
-                logger.info(f"💰 转账金额: {amount} {token} ({token_amount} 基础单位)")
+                log_info(f"💰 转账金额: {amount} {token} ({token_amount} 基础单位)")
 
                 # 获取代币账户
                 from solana.rpc.types import TokenAccountOpts
@@ -315,7 +342,7 @@ class SolanaAdapter(ChainAdapter):
 
                 # 计算关联代币账户地址
                 recipient_token_account = get_associated_token_address(recipient, mint_address)
-                logger.info(f"🔍 计算的接收方ATA地址: {recipient_token_account}")
+                log_info(f"🔍 计算的接收方ATA地址: {recipient_token_account}")
 
                 # 检查接收方是否已有代币账户
                 recipient_token_accounts = await client.get_token_accounts_by_owner(
@@ -325,7 +352,7 @@ class SolanaAdapter(ChainAdapter):
 
                 # 如果接收方没有代币账户，创建关联代币账户指令
                 if not recipient_token_accounts.get('result', {}).get('value', []):
-                    logger.info(f"⚠️ 接收方没有{token}代币账户，将自动创建关联代币账户")
+                    log_info(f"⚠️ 接收方没有{token}代币账户，将自动创建关联代币账户")
 
                     # 添加创建关联代币账户的指令
                     create_ata_ix = create_associated_token_account(
@@ -334,19 +361,19 @@ class SolanaAdapter(ChainAdapter):
                         mint=mint_address
                     )
                     tx.add(create_ata_ix)
-                    logger.info(f"✅ 已添加创建ATA指令")
+                    log_info(f"✅ 已添加创建ATA指令")
                 else:
                     # 如果已有账户，使用现有的
                     existing_account = recipient_token_accounts['result']['value'][0]['pubkey']
                     recipient_token_account = PublicKey(existing_account)
-                    logger.info(f"✅ 使用现有代币账户: {recipient_token_account}")
+                    log_info(f"✅ 使用现有代币账户: {recipient_token_account}")
 
                 # 检查余额
                 balance_info = await client.get_token_account_balance(sender_token_account)
                 if 'result' in balance_info and balance_info['result'] is not None:
                     balance = int(balance_info['result']['value']['amount'])
                     balance_ui = float(balance_info['result']['value']['uiAmountString'])
-                    logger.info(f"💵 发送方{token}余额: {balance_ui} {token}")
+                    log_info(f"💵 发送方{token}余额: {balance_ui} {token}")
                 else:
                     raise Exception(f"Failed to get token balance: {balance_info}")
 
@@ -366,18 +393,18 @@ class SolanaAdapter(ChainAdapter):
 
             # 签名并发送交易
             tx.sign(sender)
-            logger.info("✍️ 交易已签名")
+            log_info("✍️ 交易已签名")
 
             try:
                 # 发送已签名的交易，使用原始字节形式
-                logger.info("📤 准备发送交易...")
-                logger.info(f"🔍 交易对象: {tx}")
-                logger.info(f"🔍 交易指令数量: {len(tx.instructions)}")
-                logger.info(f"🔍 交易blockhash: {tx.recent_blockhash}")
+                log_info("📤 准备发送交易...")
+                log_info(f"🔍 交易对象: {tx}")
+                log_info(f"🔍 交易指令数量: {len(tx.instructions)}")
+                log_info(f"🔍 交易blockhash: {tx.recent_blockhash}")
 
                 # 序列化交易为字节
                 tx_bytes = tx.serialize()
-                logger.info(f"📦 交易字节长度: {len(tx_bytes)}")
+                log_info(f"📦 交易字节长度: {len(tx_bytes)}")
 
                 # 使用 send_raw_transaction 发送已序列化的交易
                 # 手动构建 sendTransaction RPC 请求
@@ -399,7 +426,7 @@ class SolanaAdapter(ChainAdapter):
                     ]
                 }
 
-                logger.info("📤 发送交易到RPC节点...")
+                log_info("📤 发送交易到RPC节点...")
 
                 rpc_url = client._provider.endpoint_uri
                 async with httpx.AsyncClient() as http_client:
@@ -410,33 +437,33 @@ class SolanaAdapter(ChainAdapter):
                     )
 
                     result = response.json()
-                    logger.info(f"📡 交易发送响应: {result}")
+                    log_info(f"📡 交易发送响应: {result}")
 
                     if 'result' in result and result['result'] is not None:
                         tx_signature = result['result']
-                        logger.info(f"📤 交易已发送: {tx_signature}")
+                        log_info(f"📤 交易已发送: {tx_signature}")
                     elif 'error' in result:
                         raise Exception(f"交易发送失败: {result['error']}")
                     else:
                         raise Exception(f"交易发送响应格式错误: {result}")
 
             except Exception as send_error:
-                logger.error(f"❌ 发送交易时出错: {send_error}")
-                logger.error(f"❌ 错误类型: {type(send_error)}")
+                log_error(f"❌ 发送交易时出错: {send_error}")
+                log_error(f"❌ 错误类型: {type(send_error)}")
                 import traceback
                 traceback.print_exc()
                 raise send_error
 
             # 简化确认过程 - 既然交易已经成功发送，我们等待几秒钟然后返回
-            logger.info(f"⏳ 等待交易在链上确认: {tx_signature}")
+            log_info(f"⏳ 等待交易在链上确认: {tx_signature}")
             await asyncio.sleep(5)  # 等待5秒让交易上链
 
-            logger.info(f"✅ 转账交易已发送: {tx_signature}")
-            logger.info(f"🔍 可以在 Solana Explorer 查看交易: https://explorer.solana.com/tx/{tx_signature}")
+            log_info(f"✅ 转账交易已发送: {tx_signature}")
+            log_info(f"🔍 可以在 Solana Explorer 查看交易: https://explorer.solana.com/tx/{tx_signature}")
             return tx_signature
 
         except Exception as e:
-            logger.error(f"❌ 转账失败: {e}")
+            log_error(f"❌ 转账失败: {e}")
             return None
         finally:
             await client.close()
@@ -469,9 +496,9 @@ class BitcoinAdapter(ChainAdapter):
             self.explorer_url = "https://mempool.space/signet/tx"
             # self.explorer_url = "https://mempool.space/testnet4/tx"
 
-        logger.info(f"🌐 Bitcoin适配器初始化: {network}")
+        log_info(f"🌐 Bitcoin适配器初始化: {network}")
         if network == "testnet4":
-            logger.info(f"🔗 使用 mempool.space testnet4 API")
+            log_info(f"🔗 使用 mempool.space testnet4 API")
 
     def get_address_from_private_key(self, private_key: str, address_type: str = "auto") -> str:
         """从WIF格式私钥获取Bitcoin地址
@@ -497,23 +524,23 @@ class BitcoinAdapter(ChainAdapter):
 
                 # 判断公钥是否压缩
                 is_compressed = len(private_key_obj.pub) == 33
-                logger.info(
+                log_info(
                     f"🔑 私钥解析成功，公钥长度: {len(private_key_obj.pub)} ({'压缩' if is_compressed else '未压缩'})")
 
                 # 确定实际使用的地址类型
                 if address_type == "auto":
                     # 自动选择：压缩公钥用SegWit，未压缩用Legacy
                     actual_type = "p2wpkh" if is_compressed else "p2pkh"
-                    logger.info(f"🎯 自动选择地址类型: {actual_type}")
+                    log_info(f"🎯 自动选择地址类型: {actual_type}")
                 else:
                     actual_type = address_type
-                    logger.info(f"🎯 指定地址类型: {actual_type}")
+                    log_info(f"🎯 指定地址类型: {actual_type}")
 
                 # 生成对应类型的地址
                 if actual_type == "p2pkh":
                     # Legacy P2PKH 地址 (1xxx)
                     address = P2PKHBitcoinAddress.from_pubkey(private_key_obj.pub)
-                    logger.info(f"✅ Legacy地址生成成功: {address}")
+                    log_info(f"✅ Legacy地址生成成功: {address}")
                     return str(address)
 
                 elif actual_type == "p2wpkh":
@@ -530,7 +557,7 @@ class BitcoinAdapter(ChainAdapter):
                     if not address_str:
                         raise ValueError("生成P2WPKH地址失败")
 
-                    logger.info(f"✅ Native SegWit地址生成成功: {address_str}")
+                    log_info(f"✅ Native SegWit地址生成成功: {address_str}")
                     return address_str
 
                 else:
@@ -606,7 +633,7 @@ class BitcoinAdapter(ChainAdapter):
             return bech32_encode(hrp, spec)
 
         except Exception as e:
-            logger.error(f"❌ Bech32编码失败: {e}")
+            log_error(f"❌ Bech32编码失败: {e}")
             return None
 
     def _get_wif_prefixes(self) -> list:
@@ -636,13 +663,13 @@ class BitcoinAdapter(ChainAdapter):
         """获取地址的UTXO - 使用Blockstream API"""
         try:
             url = f"{self.api_base}/address/{address}/utxo"
-            logger.info(f"🔍 获取UTXO: {url}")
+            log_info(f"🔍 获取UTXO: {url}")
 
             response = requests.get(url)
             response.raise_for_status()
             data = response.json()
 
-            logger.info(f"📊 Blockstream API响应: 找到 {len(data)} 个UTXO")
+            log_info(f"📊 Blockstream API响应: 找到 {len(data)} 个UTXO")
 
             utxos = []
             for utxo in data:
@@ -653,30 +680,30 @@ class BitcoinAdapter(ChainAdapter):
                     # Blockstream / mempool API 字段名均为 scriptpubkey
                     'scriptPubKey': utxo.get('scriptpubkey', '')
                 })
-                logger.info(f"  - UTXO: {utxo['txid']}:{utxo['vout']} = {utxo['value']} sats")
+                log_info(f"  - UTXO: {utxo['txid']}:{utxo['vout']} = {utxo['value']} sats")
 
-            logger.info(f"🎯 最终找到 {len(utxos)} 个可用UTXO")
+            log_info(f"🎯 最终找到 {len(utxos)} 个可用UTXO")
             return utxos
 
         except Exception as e:
-            logger.error(f"获取UTXO失败: {e}")
+            log_error(f"获取UTXO失败: {e}")
             if hasattr(e, 'response') and e.response:
-                logger.error(f"HTTP状态码: {e.response.status_code}")
-                logger.error(f"响应内容: {e.response.text}")
+                log_error(f"HTTP状态码: {e.response.status_code}")
+                log_error(f"响应内容: {e.response.text}")
 
                 # 如果是404，尝试检查地址信息
                 if e.response.status_code == 404:
-                    logger.info("🔍 尝试获取地址基本信息...")
+                    log_info("🔍 尝试获取地址基本信息...")
                     try:
                         info_url = f"{self.api_base}/address/{address}"
                         info_response = requests.get(info_url)
                         if info_response.status_code == 200:
                             info_data = info_response.json()
-                            logger.info(f"📊 地址信息: {info_data}")
+                            log_info(f"📊 地址信息: {info_data}")
                         else:
-                            logger.warning(f"⚠️ 地址信息也获取失败: {info_response.status_code}")
+                            log_warning(f"⚠️ 地址信息也获取失败: {info_response.status_code}")
                     except Exception as info_e:
-                        logger.warning(f"⚠️ 获取地址信息失败: {info_e}")
+                        log_warning(f"⚠️ 获取地址信息失败: {info_e}")
             return []
 
     async def _get_fee_rate(self):
@@ -689,11 +716,11 @@ class BitcoinAdapter(ChainAdapter):
 
             # 获取1块确认的费率 (sat/vB)
             fee_rate = data.get('1', data.get('2', data.get('3', 20)))
-            logger.info(f"💸 获取到费率: {fee_rate} sat/vB")
+            log_info(f"💸 获取到费率: {fee_rate} sat/vB")
             return int(fee_rate)
 
         except Exception as e:
-            logger.warning(f"获取费率失败，使用默认值: {e}")
+            log_warning(f"获取费率失败，使用默认值: {e}")
             return 50 if self.network == "mainnet" else 20  # 测试网使用较低费率
 
     async def _broadcast_transaction(self, tx_hex: str):
@@ -715,9 +742,9 @@ class BitcoinAdapter(ChainAdapter):
                 raise Exception(f"广播响应格式错误: {tx_hash}")
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"广播交易失败: {e}")
+            log_error(f"广播交易失败: {e}")
             if hasattr(e.response, 'text'):
-                logger.error(f"错误详情: {e.response.text}")
+                log_error(f"错误详情: {e.response.text}")
             raise Exception(f"交易广播失败: {e}")
 
     async def transfer_token(self, private_key: str, to_address: str, amount: str, token: str = "BTC") -> str:
@@ -725,12 +752,12 @@ class BitcoinAdapter(ChainAdapter):
         try:
             # XTN在testnet3上等同于BTC的处理方式
             display_token = token
-            logger.info(f"🔄 Bitcoin转账 ({self.network}): {amount} {display_token} 到 {to_address}")
+            log_info(f"🔄 Bitcoin转账 ({self.network}): {amount} {display_token} 到 {to_address}")
 
             # 解析私钥
             private_key_obj = CBitcoinSecret(private_key)
             from_address = self.get_address_from_private_key(private_key)
-            logger.info(f"💳 发送方地址: {from_address}")
+            log_info(f"💳 发送方地址: {from_address}")
 
             # 获取UTXO
             utxos = await self._get_utxos(from_address)
@@ -739,7 +766,7 @@ class BitcoinAdapter(ChainAdapter):
 
             # 计算金额（转换为satoshis）
             amount_satoshis = int(float(amount) * COIN)
-            logger.info(f"💰 转账金额: {amount} {display_token} ({amount_satoshis} satoshis)")
+            log_info(f"💰 转账金额: {amount} {display_token} ({amount_satoshis} satoshis)")
 
             # 选择UTXO
             selected_utxos = []
@@ -760,8 +787,8 @@ class BitcoinAdapter(ChainAdapter):
 
             # 计算找零
             change = total_input - amount_satoshis - fee
-            logger.info(f"💸 交易费用: {fee} satoshis ({fee_rate} sat/byte)")
-            logger.info(f"🔄 找零: {change} satoshis")
+            log_info(f"💸 交易费用: {fee} satoshis ({fee_rate} sat/byte)")
+            log_info(f"🔄 找零: {change} satoshis")
 
             if change < 0:
                 raise ValueError(f"余额不足支付费用: 总额 {total_input}, 转账 {amount_satoshis}, 费用 {fee}")
@@ -776,7 +803,7 @@ class BitcoinAdapter(ChainAdapter):
             txouts = []
 
             # 主要输出 - 转账目标
-            logger.info(f"🎯 目标地址: {to_address}")
+            log_info(f"🎯 目标地址: {to_address}")
             to_script = self._create_script_pubkey_for_address(to_address)
             txout_main = CMutableTxOut(amount_satoshis, to_script)
             txouts.append(txout_main)
@@ -788,20 +815,20 @@ class BitcoinAdapter(ChainAdapter):
                 txout_change = CMutableTxOut(change, from_addr.to_scriptPubKey())
                 txouts.append(txout_change)
             elif change > 0:
-                logger.warning(f"⚠️ 找零 {change} satoshis 低于粉尘阈值 {dust_threshold}，将被包含在交易费中")
+                log_warning(f"⚠️ 找零 {change} satoshis 低于粉尘阈值 {dust_threshold}，将被包含在交易费中")
 
             # 创建未签名交易
             tx = CMutableTransaction(txins, txouts)
-            logger.info("✍️ 创建未签名交易")
+            log_info("✍️ 创建未签名交易")
 
             # 检测发送地址类型
             from_address_type = self._detect_address_type(from_address)
-            logger.info(f"🔍 发送地址类型: {from_address_type}")
+            log_info(f"🔍 发送地址类型: {from_address_type}")
 
             # 根据地址类型处理签名
             if from_address_type == "p2wpkh":
                 # SegWit P2WPKH 签名
-                logger.info("✍️ 使用 P2WPKH SegWit 签名方法")
+                log_info("✍️ 使用 P2WPKH SegWit 签名方法")
 
                 # 创建 witness 列表
                 from bitcoin.core import CScriptWitness, CTxInWitness, CTxWitness
@@ -809,7 +836,7 @@ class BitcoinAdapter(ChainAdapter):
 
                 # 签名每个输入
                 for i, (txin, utxo) in enumerate(zip(txins, selected_utxos)):
-                    logger.info(f"✍️ 签名输入 {i}")
+                    log_info(f"✍️ 签名输入 {i}")
 
                     # P2WPKH: 使用 redeemScript (P2PKH 格式)
                     import hashlib
@@ -841,7 +868,7 @@ class BitcoinAdapter(ChainAdapter):
 
             elif from_address_type == "p2sh":
                 # P2SH-P2WPKH (Nested SegWit) 签名
-                logger.info("✍️ 使用 P2SH-P2WPKH (Nested SegWit) 签名方法")
+                log_info("✍️ 使用 P2SH-P2WPKH (Nested SegWit) 签名方法")
 
                 # 创建 witness 列表
                 from bitcoin.core import CScriptWitness, CTxInWitness, CTxWitness
@@ -849,7 +876,7 @@ class BitcoinAdapter(ChainAdapter):
 
                 # 签名每个输入
                 for i, (txin, utxo) in enumerate(zip(txins, selected_utxos)):
-                    logger.info(f"✍️ 签名输入 {i} (P2SH-P2WPKH)")
+                    log_info(f"✍️ 签名输入 {i} (P2SH-P2WPKH)")
 
                     # P2SH-P2WPKH: 创建内层的 P2WPKH redeemScript
                     import hashlib
@@ -884,11 +911,11 @@ class BitcoinAdapter(ChainAdapter):
 
             else:
                 # 传统 P2PKH 签名
-                logger.info("✍️ 使用传统 P2PKH 签名方法")
+                log_info("✍️ 使用传统 P2PKH 签名方法")
 
                 # 签名每个输入
                 for i, (txin, utxo) in enumerate(zip(txins, selected_utxos)):
-                    logger.info(f"✍️ 签名输入 {i}")
+                    log_info(f"✍️ 签名输入 {i}")
 
                     from_addr = P2PKHBitcoinAddress.from_pubkey(private_key_obj.pub)
                     scriptPubKey = from_addr.to_scriptPubKey()
@@ -905,7 +932,7 @@ class BitcoinAdapter(ChainAdapter):
                     # 设置输入的解锁脚本
                     txin.scriptSig = scriptSig
 
-            logger.info("✍️ 交易已签名")
+            log_info("✍️ 交易已签名")
 
             # 序列化交易（必须包含 witness）
             try:
@@ -916,56 +943,56 @@ class BitcoinAdapter(ChainAdapter):
 
             # 广播交易
             tx_hash = await self._broadcast_transaction(tx_hex)
-            logger.info(f"✅ {display_token}转账成功: {tx_hash}")
-            logger.info(f"🔍 查看交易: {self.explorer_url}/{tx_hash}")
+            log_info(f"✅ {display_token}转账成功: {tx_hash}")
+            log_info(f"🔍 查看交易: {self.explorer_url}/{tx_hash}")
 
             return tx_hash
 
         except Exception as e:
-            logger.error(f"❌ Bitcoin转账失败: {e}")
+            log_error(f"❌ Bitcoin转账失败: {e}")
             import traceback
             traceback.print_exc()
             return None
 
     def diagnose_private_key(self, private_key: str) -> None:
         """诊断私钥格式和相关信息"""
-        logger.info("🔍 开始私钥诊断...")
-        logger.info(f"📝 私钥长度: {len(private_key)}")
-        logger.info(f"📝 私钥前缀: {private_key[:3]}...")
-        logger.info(f"📝 当前网络: {self.network}")
+        log_info("🔍 开始私钥诊断...")
+        log_info(f"📝 私钥长度: {len(private_key)}")
+        log_info(f"📝 私钥前缀: {private_key[:3]}...")
+        log_info(f"📝 当前网络: {self.network}")
 
         expected_prefixes = self._get_wif_prefixes()
-        logger.info(f"📝 期望前缀: {expected_prefixes}")
+        log_info(f"📝 期望前缀: {expected_prefixes}")
 
         if any(private_key.startswith(prefix) for prefix in expected_prefixes):
-            logger.info("✅ 私钥前缀匹配")
+            log_info("✅ 私钥前缀匹配")
         else:
-            logger.warning("⚠️ 私钥前缀不匹配")
+            log_warning("⚠️ 私钥前缀不匹配")
 
         try:
             private_key_obj = CBitcoinSecret(private_key)
-            logger.info("✅ 私钥格式有效")
-            logger.info(f"📝 公钥长度: {len(private_key_obj.pub)} bytes")
-            logger.info(f"📝 公钥类型: {'压缩' if len(private_key_obj.pub) == 33 else '未压缩'}")
+            log_info("✅ 私钥格式有效")
+            log_info(f"📝 公钥长度: {len(private_key_obj.pub)} bytes")
+            log_info(f"📝 公钥类型: {'压缩' if len(private_key_obj.pub) == 33 else '未压缩'}")
 
             # 生成不同类型地址
             for addr_type in ["p2pkh", "p2wpkh"]:
                 try:
                     addr = self.get_address_from_private_key(private_key, addr_type)
-                    logger.info(f"✅ {addr_type.upper()} 地址: {addr}")
+                    log_info(f"✅ {addr_type.upper()} 地址: {addr}")
                 except Exception as e:
-                    logger.error(f"❌ {addr_type.upper()} 地址生成失败: {e}")
+                    log_error(f"❌ {addr_type.upper()} 地址生成失败: {e}")
 
         except Exception as e:
-            logger.error(f"❌ 私钥格式无效: {e}")
-            logger.info("💡 需要转换为 Bitcoin WIF 格式")
+            log_error(f"❌ 私钥格式无效: {e}")
+            log_info("💡 需要转换为 Bitcoin WIF 格式")
 
     def _create_script_pubkey_for_address(self, address: str):
         """为不同类型的地址创建 scriptPubKey"""
         try:
-            logger.info(f"🔍 处理地址: {address}")
-            logger.info(f"📝 地址长度: {len(address)}")
-            logger.info(f"📝 地址前缀: {address[:6] if len(address) >= 6 else address}")
+            log_info(f"🔍 处理地址: {address}")
+            log_info(f"📝 地址长度: {len(address)}")
+            log_info(f"📝 地址前缀: {address[:6] if len(address) >= 6 else address}")
 
             if address.startswith(('1', 'm', 'n')):
                 # Legacy P2PKH 地址
@@ -984,7 +1011,7 @@ class BitcoinAdapter(ChainAdapter):
 
                 # 创建 P2PKH scriptPubKey: OP_DUP OP_HASH160 <pubkey_hash> OP_EQUALVERIFY OP_CHECKSIG
                 script = CScript([OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG])
-                logger.info(f"✅ 创建 P2PKH scriptPubKey for {address}")
+                log_info(f"✅ 创建 P2PKH scriptPubKey for {address}")
                 return script
 
             elif address.startswith(('3', '2')):
@@ -996,10 +1023,10 @@ class BitcoinAdapter(ChainAdapter):
                     # 使用 python-bitcoinlib 的 P2SHBitcoinAddress 类
                     p2sh_addr = P2SHBitcoinAddress(address)
                     script = p2sh_addr.to_scriptPubKey()
-                    logger.info(f"✅ 创建 P2SH scriptPubKey for {address}")
+                    log_info(f"✅ 创建 P2SH scriptPubKey for {address}")
                     return script
                 except Exception as addr_error:
-                    logger.warning(f"⚠️ P2SHBitcoinAddress 解析失败，尝试手动解析: {addr_error}")
+                    log_warning(f"⚠️ P2SHBitcoinAddress 解析失败，尝试手动解析: {addr_error}")
 
                     # 备用方案：手动解析 Base58Check 地址
                     try:
@@ -1018,10 +1045,10 @@ class BitcoinAdapter(ChainAdapter):
 
                         # 创建 P2SH scriptPubKey: OP_HASH160 <20-byte-script-hash> OP_EQUAL
                         script = CScript([OP_HASH160, script_hash, OP_EQUAL])
-                        logger.info(f"✅ 手动创建 P2SH scriptPubKey for {address}")
+                        log_info(f"✅ 手动创建 P2SH scriptPubKey for {address}")
                         return script
                     except Exception as manual_error:
-                        logger.error(f"❌ 手动解析 P2SH 地址也失败: {manual_error}")
+                        log_error(f"❌ 手动解析 P2SH 地址也失败: {manual_error}")
                         raise ValueError(f"P2SH 地址解析失败: {address}")
 
             elif address.startswith(('bc1', 'tb1')):
@@ -1030,30 +1057,30 @@ class BitcoinAdapter(ChainAdapter):
 
                 # 解码 bech32 地址
                 hrp = "bc" if address.startswith("bc1") else "tb"
-                logger.info(f"🔍 使用 HRP: {hrp}")
+                log_info(f"🔍 使用 HRP: {hrp}")
                 decoded = self._decode_bech32(address, hrp)
-                logger.info(f"🔍 Bech32 解码结果: {decoded}")
+                log_info(f"🔍 Bech32 解码结果: {decoded}")
 
                 if decoded is None:
                     raise ValueError(f"无效的 bech32 地址: {address}")
 
                 witness_version, witness_program = decoded
-                logger.info(f"🔍 Witness 版本: {witness_version}, 程序长度: {len(witness_program)}")
+                log_info(f"🔍 Witness 版本: {witness_version}, 程序长度: {len(witness_program)}")
 
                 if witness_version == 0 and len(witness_program) == 20:
                     # P2WPKH: OP_0 <20-byte-pubkey-hash>
                     script = CScript([OP_0, witness_program])
-                    logger.info(f"✅ 创建 P2WPKH scriptPubKey for {address}")
+                    log_info(f"✅ 创建 P2WPKH scriptPubKey for {address}")
                     return script
                 elif witness_version == 0 and len(witness_program) == 32:
                     # P2WSH: OP_0 <32-byte-script-hash>
                     script = CScript([OP_0, witness_program])
-                    logger.info(f"✅ 创建 P2WSH scriptPubKey for {address}")
+                    log_info(f"✅ 创建 P2WSH scriptPubKey for {address}")
                     return script
                 elif witness_version == 1 and len(witness_program) == 32:
                     # P2TR (Taproot): OP_1 <32-byte-taproot-output>
                     script = CScript([1, witness_program])  # OP_1 = 1
-                    logger.info(f"✅ 创建 P2TR (Taproot) scriptPubKey for {address}")
+                    log_info(f"✅ 创建 P2TR (Taproot) scriptPubKey for {address}")
                     return script
                 else:
                     raise ValueError(
@@ -1063,14 +1090,14 @@ class BitcoinAdapter(ChainAdapter):
                 raise ValueError(f"不支持的地址格式: {address}")
 
         except Exception as e:
-            logger.error(f"❌ 创建 scriptPubKey 失败: {e}")
+            log_error(f"❌ 创建 scriptPubKey 失败: {e}")
             raise
 
     def _decode_bech32(self, address: str, hrp: str):
         """解码 Bech32 地址 (支持 Bech32 和 Bech32m)"""
         try:
-            logger.info(f"🔍 开始解码地址: {address}")
-            logger.info(f"🔍 使用 HRP: {hrp}")
+            log_info(f"🔍 开始解码地址: {address}")
+            log_info(f"🔍 使用 HRP: {hrp}")
 
             # Bech32 字符集
             CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
@@ -1125,82 +1152,82 @@ class BitcoinAdapter(ChainAdapter):
             if ((address[:len(hrp)] != hrp) or
                     (not (6 <= len(address) <= 90)) or
                     (address[len(hrp)] != '1')):
-                logger.error(f"❌ 地址格式检查失败")
+                log_error(f"❌ 地址格式检查失败")
                 return None
 
             # 分离数据部分
             data_part = address[len(hrp) + 1:]
-            logger.info(f"🔍 数据部分: {data_part}")
+            log_info(f"🔍 数据部分: {data_part}")
 
             # 转换字符为5位值
             data = []
             for char in data_part:
                 if char not in CHARSET:
-                    logger.error(f"❌ 无效字符: {char}")
+                    log_error(f"❌ 无效字符: {char}")
                     return None
                 data.append(CHARSET.index(char))
 
-            logger.info(f"🔍 转换后的数据: {data[:10]}...")  # 只显示前10个
+            log_info(f"🔍 转换后的数据: {data[:10]}...")  # 只显示前10个
 
             # 验证校验和 (先尝试 Bech32，再尝试 Bech32m)
             is_bech32 = bech32_verify_checksum(hrp, data)
             is_bech32m = bech32m_verify_checksum(hrp, data)
 
-            logger.info(f"🔍 Bech32 校验: {is_bech32}")
-            logger.info(f"🔍 Bech32m 校验: {is_bech32m}")
+            log_info(f"🔍 Bech32 校验: {is_bech32}")
+            log_info(f"🔍 Bech32m 校验: {is_bech32m}")
 
             if not (is_bech32 or is_bech32m):
-                logger.error(f"❌ 校验和验证失败")
+                log_error(f"❌ 校验和验证失败")
                 return None
 
             # 提取载荷（去掉校验和）
             payload = data[:-6]
 
             if len(payload) < 1:
-                logger.error(f"❌ 载荷太短")
+                log_error(f"❌ 载荷太短")
                 return None
 
             # 提取 witness 版本和程序
             witness_version = payload[0]
             if witness_version > 16:
-                logger.error(f"❌ 无效的 witness 版本: {witness_version}")
+                log_error(f"❌ 无效的 witness 版本: {witness_version}")
                 return None
 
-            logger.info(f"🔍 Witness 版本: {witness_version}")
+            log_info(f"🔍 Witness 版本: {witness_version}")
 
             # 转换 witness 程序
             witness_program = convertbits(payload[1:], 5, 8, False)
             if witness_program is None:
-                logger.error(f"❌ 转换 witness 程序失败")
+                log_error(f"❌ 转换 witness 程序失败")
                 return None
 
             witness_program_bytes = bytes(witness_program)
-            logger.info(f"🔍 Witness 程序长度: {len(witness_program_bytes)}")
+            log_info(f"🔍 Witness 程序长度: {len(witness_program_bytes)}")
 
             # 验证程序长度
             if len(witness_program_bytes) < 2 or len(witness_program_bytes) > 40:
-                logger.error(f"❌ 无效的程序长度: {len(witness_program_bytes)}")
+                log_error(f"❌ 无效的程序长度: {len(witness_program_bytes)}")
                 return None
 
             # 版本 0 只能是 20 或 32 字节
             if witness_version == 0 and len(witness_program_bytes) not in [20, 32]:
-                logger.error(f"❌ 版本 0 程序长度无效: {len(witness_program_bytes)}")
+                log_error(f"❌ 版本 0 程序长度无效: {len(witness_program_bytes)}")
                 return None
 
             # 版本 1 (Taproot) 必须是 32 字节且使用 Bech32m
             if witness_version == 1:
                 if len(witness_program_bytes) != 32:
-                    logger.error(f"❌ 版本 1 程序长度必须是 32 字节: {len(witness_program_bytes)}")
+                    log_error(f"❌ 版本 1 程序长度必须是 32 字节: {len(witness_program_bytes)}")
                     return None
                 if not is_bech32m:
-                    logger.error(f"❌ 版本 1 必须使用 Bech32m 编码")
+                    log_error(f"❌ 版本 1 必须使用 Bech32m 编码")
                     return None
 
-            logger.info(f"✅ 成功解码: v{witness_version}, {len(witness_program_bytes)} bytes")
+            log_info(f"✅ 成功解码: v{witness_version}, {len(witness_program_bytes)} bytes")
             return witness_version, witness_program_bytes
 
         except Exception as e:
-            logger.error(f"❌ Bech32解码失败: {e}")
+            log_error(f"❌ Bech32解码失败: {e}")
             return None
 
     def _detect_address_type(self, address: str) -> str:
@@ -1280,31 +1307,31 @@ class ArbitrageExecutor:
             private_key = get_private_key_from_env(src_chain)
 
             if not private_key:
-                logger.error("❌ 无法获取SOL私钥，套利执行中止")
+                log_error("❌ 无法获取SOL私钥，套利执行中止")
                 return
 
-            logger.info(f"🚀 开始套利执行 {trading_pair} ({direction})")
-            logger.info(f"📊 源链: {src_chain} -> 目标链: {target_chain}")
+            log_info(f"🚀 开始套利执行 {trading_pair} ({direction})")
+            log_info(f"📊 源链: {src_chain} -> 目标链: {target_chain}")
 
             # 获取源链适配器
             src_adapter = self.get_adapter(src_chain)
 
             # 获取源地址
             src_addr = src_adapter.get_address_from_private_key(private_key)
-            logger.info(f"👛 源地址 ({src_chain}): {src_addr}")
+            log_info(f"👛 源地址 ({src_chain}): {src_addr}")
 
             # 初始化 MPC 客户端
             mpc_client = MPCClient()
 
             # 检查或创建 MPC 钱包
-            logger.info("🔍 检查MPC钱包存在性...")
+            log_info("🔍 检查MPC钱包存在性...")
             if not mpc_client.check_mpc_exists(src_addr):
-                logger.info(f"🆕 创建MPC钱包 for {src_addr}")
+                log_info(f"🆕 创建MPC钱包 for {src_addr}")
                 wallet_id = mpc_client.create_mpc_wallet(src_addr)
-                logger.info(f"✅ MPC钱包已创建，ID: {wallet_id}")
+                log_info(f"✅ MPC钱包已创建，ID: {wallet_id}")
             else:
                 wallet_id = mpc_client.get_mpc_wallet_id(src_addr)
-                logger.info(f"✅ 找到现有MPC钱包，ID: {wallet_id}")
+                log_info(f"✅ 找到现有MPC钱包，ID: {wallet_id}")
 
             # 检查是否禁用转账
             disable_transfer = os.getenv("DISABLE_TRANSFER", "").lower() == "true"
@@ -1313,7 +1340,7 @@ class ArbitrageExecutor:
             maker_order_params = {"wallet_id": wallet_id}
             
             if disable_transfer:
-                logger.info("🚫 DISABLE_TRANSFER=true，跳过转账和余额检查")
+                log_info("🚫 DISABLE_TRANSFER=true，跳过转账和余额检查")
                 # 添加必要的参数
                 maker_order_params.update({
                     "tx_hash": "fake",
@@ -1337,26 +1364,26 @@ class ArbitrageExecutor:
                     return
 
             # 创建maker订单
-            logger.info("🔨 创建maker订单...")
-            logger.info(f"📋 订单参数: {list(maker_order_params.keys())}")
+            log_info("🔨 创建maker订单...")
+            log_info(f"📋 订单参数: {list(maker_order_params.keys())}")
             
             try:
                 result = mpc_client.create_maker_order(**maker_order_params)
-                logger.info(f"✅ Maker订单创建成功: {result}")
+                log_info(f"✅ Maker订单创建成功: {result}")
 
             except Exception as e:
-                logger.error(f"❌ Maker订单创建失败: {e}")
+                log_error(f"❌ Maker订单创建失败: {e}")
                 # 如果是requests异常，打印响应内容
                 if hasattr(e, 'response'):
                     try:
                         error_detail = e.response.json()
-                        logger.error(f"❌ 错误详情: {error_detail}")
+                        log_error(f"❌ 错误详情: {error_detail}")
                     except:
-                        logger.error(f"❌ 响应内容: {e.response.text}")
+                        log_error(f"❌ 响应内容: {e.response.text}")
                 return
 
         except Exception as e:
-            logger.error(f"💥 套利执行失败: {str(e)}")
+            log_error(f"💥 套利执行失败: {str(e)}")
             import traceback
             traceback.print_exc()
 
@@ -1366,7 +1393,7 @@ class ArbitrageExecutor:
         """执行转账相关逻辑"""
         try:
             # 获取 MPC 存款地址
-            logger.info(f"🔍 查找MPC存款地址 for {src_chain}...")
+            log_info(f"🔍 查找MPC存款地址 for {src_chain}...")
             if src_chain == "SOL":
                 mpc_deposit_addr = mpc_client.find_mpc_addr(src_addr, src_chain)
             else:
@@ -1377,26 +1404,26 @@ class ArbitrageExecutor:
                         mpc_deposit_addr = addr.address
                         break
             if not mpc_deposit_addr:
-                logger.error(f"❌ 未找到MPC存款地址 for {src_chain}")
+                log_error(f"❌ 未找到MPC存款地址 for {src_chain}")
                 maker_order_params.clear()
                 return
 
-            logger.info(f"🏦 MPC {src_chain} 存款地址: {mpc_deposit_addr}")
+            log_info(f"🏦 MPC {src_chain} 存款地址: {mpc_deposit_addr}")
 
             # 估算交易费用
-            logger.info("💰 估算交易费用...")
+            log_info("💰 估算交易费用...")
             try:
                 fee = mpc_client.estimate_tx_fee(wallet_id, i_token, i_amount, mpc_deposit_addr)
                 total_deposit = float(i_amount) + float(fee)
-                logger.info(f"💸 估算费用: {fee} {i_token}")
-                logger.info(f"💰 总存款需求: {total_deposit} {i_token} ({i_amount} + {fee} 费用)")
+                log_info(f"💸 估算费用: {fee} {i_token}")
+                log_info(f"💰 总存款需求: {total_deposit} {i_token} ({i_amount} + {fee} 费用)")
             except Exception as e:
-                logger.warning(f"⚠️ 费用估算失败: {e}")
+                log_warning(f"⚠️ 费用估算失败: {e}")
                 maker_order_params.clear()
                 return
 
             # 执行代币转账到 MPC 地址
-            logger.info(f"🔄 开始转账到MPC地址...")
+            log_info(f"🔄 开始转账到MPC地址...")
 
             transfer_token = i_token
             if src_chain != i_token and i_token.startswith(src_chain):
@@ -1410,20 +1437,20 @@ class ArbitrageExecutor:
             )
 
             if not tx_hash:
-                logger.error(f"❌ 转账到MPC地址失败")
+                log_error(f"❌ 转账到MPC地址失败")
                 maker_order_params.clear()
                 return
 
-            logger.info(f"✅ 存款交易完成: {tx_hash}")
+            log_info(f"✅ 存款交易完成: {tx_hash}")
 
             # 签名目标订单
-            logger.info("✍️ 签名maker订单...")
+            log_info("✍️ 签名maker订单...")
             try:
                 message = f"{target_chain}{o_token}{i_amount}".encode("utf-8")
                 sig = src_adapter.sign_message(private_key, message)
-                logger.info(f"✅ 订单签名生成: {sig[:16]}...")
+                log_info(f"✅ 订单签名生成: {sig[:16]}...")
             except Exception as e:
-                logger.error(f"❌ 订单签名失败: {e}")
+                log_error(f"❌ 订单签名失败: {e}")
                 maker_order_params.clear()
                 return
 
@@ -1441,7 +1468,7 @@ class ArbitrageExecutor:
             })
 
         except Exception as e:
-            logger.error(f"❌ 转账逻辑执行失败: {e}")
+            log_error(f"❌ 转账逻辑执行失败: {e}")
             maker_order_params.clear()
             return
 
