@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal, getcontext
 
 import aiohttp
 import asyncpg
@@ -500,6 +500,20 @@ async def get_single_exchange_rfq(
     finally:
         await cleanup()
 
+getcontext().prec = 28
+
+# 币种精度表
+TOKEN_PRECISION = {
+    "BTC": 8,
+    "ETH": 18,
+    "USDT": 6,
+    "SOL": 9,
+}
+
+def truncate_amount(amount: str, token: str) -> str:
+    precision = TOKEN_PRECISION.get(token.upper(), 8)  # 默认8位
+    quantize_str = '1.' + '0' * precision  # 如 '1.00000000'
+    return str(Decimal(amount).quantize(Decimal(quantize_str), rounding=ROUND_DOWN))
 
 async def get_best_rfq(
     source_chain: str,
@@ -532,6 +546,7 @@ async def get_best_rfq(
             return {"error": "No valid quotes available"}
 
         best_result = max(valid_results, key=lambda x: x["target_amount"])
+        best_result["target_amount"] = truncate_amount(best_result["target_amount"], target_token)
 
         # 统一返回格式
         best_result["all_exchanges"] = {
