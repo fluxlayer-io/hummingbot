@@ -1482,7 +1482,7 @@ async def execute_arbitrage_with_fluxlayer(trading_pair: str = "BTC-USDC"):
 async def execute_arbitrage(fluxlayer_exchange, trading_pair: str = "BTC-USDC"):
     # 创建套利执行器并执行
     network = "mainnet"
-    dev_mode = os.getenv("DEV_MODE", True)
+    dev_mode = os.getenv("DEV_MODE", True).lower() == "true"
     if dev_mode:
         network = "testnet4"
     executor = ArbitrageExecutor(network)
