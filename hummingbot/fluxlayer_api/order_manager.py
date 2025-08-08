@@ -1204,7 +1204,7 @@ async def main():
     # 测试下单功能
     print("\n=== Testing Order Placement ===")
 
-    connector_name = "okx"
+    connector_name = "bybit"
     trading_pair = "BTC-USDT"
     amount = 0.0000546
     # amount = 0.00086
