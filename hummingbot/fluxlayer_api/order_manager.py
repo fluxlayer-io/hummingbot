@@ -190,7 +190,8 @@ class OrderManager:
                 self._logger.info(f"🔍 [BYBIT INIT DEBUG] Connector created successfully")
                 
                 # 检查是否有必要的属性
-                attrs_to_check = ['_api_factory', '_auth', '_throttler', '_time_synchronizer']
+
+                attrs_to_check = ['_web_assistants_factory', '_auth', '_throttler', '_time_synchronizer']
                 for attr in attrs_to_check:
                     has_attr = hasattr(connector, attr)
                     attr_value = getattr(connector, attr, None) if has_attr else None
@@ -313,40 +314,22 @@ class OrderManager:
             self._connector_locks[connector_name] = asyncio.Lock()
         
         async with self._connector_locks[connector_name]:
-            # 对于 Bybit，强制重新创建连接器，不使用缓存
-            if connector_name == "bybit":
-                self._logger.info(f"🔧 [BYBIT DEBUG] Force recreating Bybit connector (skipping cache)")
-                if connector_name in self._connectors:
-                    old_connector = self._connectors[connector_name]
-                    try:
-                        # 停止旧连接器
-                        if hasattr(old_connector, 'stop_network'):
-                            await old_connector.stop_network()
-                        self._logger.info(f"🔧 [BYBIT DEBUG] Stopped old connector")
-                    except Exception as stop_error:
-                        self._logger.warning(f"⚠️ [BYBIT DEBUG] Failed to stop old connector: {stop_error}")
-                    
-                    # 删除缓存
+            # 检查指定的连接器是否已经在缓存中
+            if connector_name in self._connectors:
+                connector = self._connectors[connector_name]
+                # 检查连接器是否仍然有效
+                try:
+                    if hasattr(connector, 'ready') and connector.ready:
+                        self._logger.info(f"Using cached connector for {connector_name}")
+                        return connector
+                    elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
+                        # 即使 ready 状态不完整，如果有账户余额，也可以使用
+                        self._logger.info(f"Using cached connector for {connector_name} (partial ready state)")
+                        return connector
+                except Exception as e:
+                    self._logger.warning(f"Cached connector validation failed for {connector_name}: {e}")
+                    # 移除无效的连接器
                     del self._connectors[connector_name]
-                    self._logger.info(f"🔧 [BYBIT DEBUG] Removed cached connector")
-            else:
-                # 其他交易所保持原逻辑
-                # 检查指定的连接器是否已经在缓存中
-                if connector_name in self._connectors:
-                    connector = self._connectors[connector_name]
-                    # 检查连接器是否仍然有效
-                    try:
-                        if hasattr(connector, 'ready') and connector.ready:
-                            self._logger.info(f"Using cached connector for {connector_name}")
-                            return connector
-                        elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
-                            # 即使 ready 状态不完整，如果有账户余额，也可以使用
-                            self._logger.info(f"Using cached connector for {connector_name} (partial ready state)")
-                            return connector
-                    except Exception as e:
-                        self._logger.warning(f"Cached connector validation failed for {connector_name}: {e}")
-                        # 移除无效的连接器
-                        del self._connectors[connector_name]
             
             # 如果正在进行预初始化，等待一小段时间再检查这个特定的连接器
             if self._is_initializing and connector_name not in self._connectors:
@@ -429,11 +412,23 @@ class OrderManager:
                 self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Connector created successfully")
                 
                 # 检查是否有必要的属性
-                attrs_to_check = ['_api_factory', '_auth', '_throttler', '_time_synchronizer', '_order_book_tracker', '_user_stream_tracker']
+                attrs_to_check = ['_web_assistants_factory', '_auth', '_throttler', '_time_synchronizer', '_order_book_tracker', '_user_stream_tracker', '_orderbook_ds']
                 for attr in attrs_to_check:
                     has_attr = hasattr(connector, attr)
                     attr_value = getattr(connector, attr, None) if has_attr else None
                     self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: {'EXISTS' if has_attr else 'MISSING'} (value: {'SET' if attr_value else 'NONE'})")
+                    
+                    # 对 order_book_tracker 进行更详细的检查
+                    if attr == '_order_book_tracker' and has_attr and attr_value:
+                        try:
+                            order_books_count = len(attr_value.order_books) if hasattr(attr_value, 'order_books') else 0
+                            self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG]   -> order_book_tracker has {order_books_count} order books")
+                            
+                            # 检查是否在运行
+                            is_running = hasattr(attr_value, '_order_book_stream_listener_task') and attr_value._order_book_stream_listener_task is not None
+                            self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG]   -> order_book_tracker running: {is_running}")
+                        except Exception as e:
+                            self._logger.error(f"❌ [BYBIT MAIN INIT DEBUG]   -> order_book_tracker inspection error: {e}")
                 
                 # 检查连接器类型和继承
                 connector_type = type(connector).__name__
@@ -481,28 +476,50 @@ class OrderManager:
                         self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Failed to get status after network start: {status_error}")
                     
                     # 检查关键组件是否被网络启动过程初始化
-                    network_attrs = ['_api_factory', '_order_book_tracker', '_user_stream_tracker']
+                    network_attrs = ['_web_assistants_factory', '_order_book_tracker', '_user_stream_tracker']
                     for attr in network_attrs:
                         has_attr = hasattr(connector, attr)
                         attr_value = getattr(connector, attr, None) if has_attr else None
                         self._logger.info(f"🔍 [BYBIT NETWORK DEBUG] After network start - {attr}: {'EXISTS' if has_attr else 'MISSING'} (value: {'SET' if attr_value else 'NONE'})")
                     
-                    # 如果仍然缺少关键组件，尝试手动初始化
-                    if not hasattr(connector, '_api_factory') or not connector._api_factory:
-                        self._logger.error(f"❌ [BYBIT NETWORK DEBUG] API factory still missing after network start!")
+                    # 记录 web assistants factory 状态
+                    if hasattr(connector, '_web_assistants_factory') and connector._web_assistants_factory:
+                        self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Web assistants factory exists and is set")
+                    else:
+                        self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Web assistants factory missing after network start!")
+                    
+                    # 如果仍然缺少订单簿跟踪器，尝试手动创建
+                    if not hasattr(connector, '_order_book_tracker') or not connector._order_book_tracker:
+                        self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Order book tracker still missing!")
                         try:
-                            # 尝试手动创建 API factory
-                            self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Attempting to manually initialize API factory...")
+                            self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Attempting to manually initialize order book tracker...")
                             
-                            # 检查连接器是否有创建 API factory 的方法
-                            if hasattr(connector, '_create_api_factory'):
-                                connector._api_factory = connector._create_api_factory()
-                                self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Manually created API factory")
-                            else:
-                                self._logger.error(f"❌ [BYBIT NETWORK DEBUG] No _create_api_factory method found")
+                            if hasattr(connector, '_create_order_book_data_source') and hasattr(connector, '_set_order_book_tracker'):
+                                from hummingbot.core.data_type.order_book_tracker import OrderBookTracker
                                 
-                        except Exception as factory_error:
-                            self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Failed to manually create API factory: {factory_error}")
+                                # 创建订单簿数据源
+                                orderbook_ds = connector._create_order_book_data_source()
+                                self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Created order book data source")
+                                
+                                # 创建并设置订单簿跟踪器
+                                tracker = OrderBookTracker(data_source=orderbook_ds, trading_pairs=connector._trading_pairs)
+                                connector._set_order_book_tracker(tracker)
+                                self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Manually created order book tracker")
+                                
+                                # 启动订单簿跟踪器
+                                if hasattr(connector, '_order_book_tracker') and connector._order_book_tracker:
+                                    connector._order_book_tracker.start()
+                                    self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Order book tracker started")
+                                else:
+                                    self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Order book tracker still not set after creation")
+                                
+                            else:
+                                self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Missing required methods for order book tracker creation")
+                                
+                        except Exception as tracker_error:
+                            self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Failed to manually create order book tracker: {tracker_error}")
+                            import traceback
+                            self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Tracker error traceback: {traceback.format_exc()}")
                     
                     # 检查是否有网络迭代器
                     if hasattr(connector, '_network_iterator'):
@@ -531,9 +548,9 @@ class OrderManager:
                             user_stream_status = "initialized" if connector._user_stream_tracker else "not_initialized"
                             self._logger.info(f"🔍 [BYBIT DEBUG] User stream tracker: {user_stream_status}")
                         
-                        if hasattr(connector, '_api_factory'):
-                            api_factory_status = "initialized" if connector._api_factory else "not_initialized"
-                            self._logger.info(f"🔍 [BYBIT DEBUG] API factory: {api_factory_status}")
+                        if hasattr(connector, '_web_assistants_factory'):
+                            api_factory_status = "initialized" if connector._web_assistants_factory else "not_initialized"
+                            self._logger.info(f"🔍 [BYBIT DEBUG] Web assistants factory: {api_factory_status}")
                         
                         # 检查订单簿跟踪器状态
                         if hasattr(connector, '_order_book_tracker'):
@@ -735,9 +752,10 @@ class OrderManager:
                     self._logger.info(f"🔍 [BYBIT API DEBUG] Checking API configuration...")
                     
                     # 检查 API 密钥配置
-                    if hasattr(connector, '_api_factory') and connector._api_factory:
-                        if hasattr(connector._api_factory, '_auth') and connector._api_factory._auth:
-                            auth = connector._api_factory._auth
+                    if hasattr(connector, '_web_assistants_factory') and connector._web_assistants_factory:
+                        self._logger.info(f"✅ [BYBIT API DEBUG] Web assistants factory found")
+                        if hasattr(connector, '_auth') and connector._auth:
+                            auth = connector._auth
                             api_key = getattr(auth, '_api_key', 'NOT_SET')
                             api_secret = getattr(auth, '_secret_key', 'NOT_SET')
                             
@@ -748,9 +766,9 @@ class OrderManager:
                             self._logger.info(f"🔍 [BYBIT API DEBUG] API Key: {masked_key}")
                             self._logger.info(f"🔍 [BYBIT API DEBUG] API Secret: {masked_secret}")
                         else:
-                            self._logger.error(f"❌ [BYBIT API DEBUG] No authentication found in API factory!")
+                            self._logger.error(f"❌ [BYBIT API DEBUG] No authentication found in connector!")
                     else:
-                        self._logger.error(f"❌ [BYBIT API DEBUG] No API factory found!")
+                        self._logger.error(f"❌ [BYBIT API DEBUG] No web assistants factory found!")
                     
                     # 检查账户余额状态
                     balance_count = len(connector._account_balances)
@@ -1186,7 +1204,7 @@ async def main():
     # 测试下单功能
     print("\n=== Testing Order Placement ===")
 
-    connector_name = "bybit"
+    connector_name = "okx"
     trading_pair = "BTC-USDT"
     amount = 0.0000546
     # amount = 0.00086
