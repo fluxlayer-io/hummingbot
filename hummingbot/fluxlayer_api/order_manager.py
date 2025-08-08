@@ -782,7 +782,7 @@ class OrderManager:
                     status_dict = connector.status_dict
                     self._logger.info(f"🔍 [BYBIT API DEBUG] Connector status: {status_dict}")
                     
-                    # 检查订单簿状态
+                    # 检查订单簿状态（对市价单放宽要求）
                     if hasattr(connector, '_order_book_tracker') and connector._order_book_tracker:
                         ob_tracker = connector._order_book_tracker
                         ob_count = len(ob_tracker.order_books)
@@ -795,23 +795,44 @@ class OrderManager:
                             self._logger.info(f"🔍 [BYBIT API DEBUG] {trading_pair} order book: {bid_count} bids, {ask_count} asks")
                             
                             if bid_count == 0 or ask_count == 0:
-                                self._logger.error(f"❌ [BYBIT API DEBUG] Order book for {trading_pair} has insufficient data!")
-                                # 尝试快速重新获取订单簿数据
-                                try:
-                                    self._logger.info(f"🔧 [BYBIT API DEBUG] Attempting to force refresh order book data...")
-                                    await asyncio.sleep(3)  # 等待3秒让数据加载
-                                    
-                                    # 再次检查
-                                    bid_count_after = len(order_book.bid_entries())
-                                    ask_count_after = len(order_book.ask_entries())
-                                    self._logger.info(f"🔍 [BYBIT API DEBUG] After refresh - {trading_pair}: {bid_count_after} bids, {ask_count_after} asks")
-                                except Exception as refresh_error:
-                                    self._logger.error(f"❌ [BYBIT API DEBUG] Order book refresh failed: {refresh_error}")
+                                if order_type == "MARKET":
+                                    self._logger.warning(f"⚠️ [BYBIT API DEBUG] Order book for {trading_pair} has insufficient data, but continuing for MARKET order")
+                                else:
+                                    self._logger.error(f"❌ [BYBIT API DEBUG] Order book for {trading_pair} has insufficient data!")
+                                    # 尝试快速重新获取订单簿数据
+                                    try:
+                                        self._logger.info(f"🔧 [BYBIT API DEBUG] Attempting to force refresh order book data...")
+                                        await asyncio.sleep(3)  # 等待3秒让数据加载
+                                        
+                                        # 再次检查
+                                        bid_count_after = len(order_book.bid_entries())
+                                        ask_count_after = len(order_book.ask_entries())
+                                        self._logger.info(f"🔍 [BYBIT API DEBUG] After refresh - {trading_pair}: {bid_count_after} bids, {ask_count_after} asks")
+                                    except Exception as refresh_error:
+                                        self._logger.error(f"❌ [BYBIT API DEBUG] Order book refresh failed: {refresh_error}")
                         else:
-                            self._logger.error(f"❌ [BYBIT API DEBUG] No order book found for {trading_pair}!")
+                            # 对于市价单，即使没有订单簿数据也继续
+                            if order_type == "MARKET":
+                                self._logger.warning(f"⚠️ [BYBIT API DEBUG] No order book found for {trading_pair}, but continuing for MARKET order")
+                            else:
+                                self._logger.error(f"❌ [BYBIT API DEBUG] No order book found for {trading_pair}!")
+                                return {
+                                    "success": False,
+                                    "error": f"Order book not available for {trading_pair}. Please wait for market data to load.",
+                                    "exchange": connector_name,
+                                    "trading_pair": trading_pair,
+                                    "amount": amount,
+                                    "side": "BUY" if is_buy else "SELL"
+                                }
+                    else:
+                        # 对于市价单，即使没有订单簿跟踪器也继续
+                        if order_type == "MARKET":
+                            self._logger.warning(f"⚠️ [BYBIT API DEBUG] No order book tracker found, but continuing for MARKET order")
+                        else:
+                            self._logger.error(f"❌ [BYBIT API DEBUG] No order book tracker found!")
                             return {
                                 "success": False,
-                                "error": f"Order book not available for {trading_pair}. Please wait for market data to load.",
+                                "error": f"Order book tracker not available for {trading_pair}. Please wait for market data to load.",
                                 "exchange": connector_name,
                                 "trading_pair": trading_pair,
                                 "amount": amount,
@@ -1204,7 +1225,7 @@ async def main():
     # 测试下单功能
     print("\n=== Testing Order Placement ===")
 
-    connector_name = "bybit"
+    connector_name = "okx"
     trading_pair = "BTC-USDT"
     amount = 0.0000546
     # amount = 0.00086
