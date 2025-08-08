@@ -172,7 +172,29 @@ class OrderManager:
             
             # 创建连接器实例
             exchange_class = exchange_config["exchange_class"]
+            
+            # 🔍 DEBUG: 记录连接器初始化参数
+            if connector_name == "bybit":
+                self._logger.info(f"🔍 [BYBIT INIT DEBUG] Creating {connector_name} with params:")
+                for key, value in init_params.items():
+                    if 'key' in key.lower() or 'secret' in key.lower():
+                        masked_value = f"{str(value)[:8]}..." if len(str(value)) > 8 else "TOO_SHORT"
+                        self._logger.info(f"🔍 [BYBIT INIT DEBUG]   {key}: {masked_value}")
+                    else:
+                        self._logger.info(f"🔍 [BYBIT INIT DEBUG]   {key}: {value}")
+            
             connector = exchange_class(**init_params)
+            
+            # 🔍 DEBUG: 检查连接器创建后的状态
+            if connector_name == "bybit":
+                self._logger.info(f"🔍 [BYBIT INIT DEBUG] Connector created successfully")
+                
+                # 检查是否有必要的属性
+                attrs_to_check = ['_api_factory', '_auth', '_throttler', '_time_synchronizer']
+                for attr in attrs_to_check:
+                    has_attr = hasattr(connector, attr)
+                    attr_value = getattr(connector, attr, None) if has_attr else None
+                    self._logger.info(f"🔍 [BYBIT INIT DEBUG] {attr}: {'EXISTS' if has_attr else 'MISSING'} (value: {'SET' if attr_value else 'NONE'})")
             
             # 启动网络连接
             await connector.start_network()
@@ -356,7 +378,29 @@ class OrderManager:
             
             # 创建连接器实例
             exchange_class = exchange_config["exchange_class"]
+            
+            # 🔍 DEBUG: 记录连接器初始化参数（主方法）
+            if connector_name == "bybit":
+                self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Creating {connector_name} with params:")
+                for key, value in init_params.items():
+                    if 'key' in key.lower() or 'secret' in key.lower():
+                        masked_value = f"{str(value)[:8]}..." if len(str(value)) > 8 else "TOO_SHORT"
+                        self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG]   {key}: {masked_value}")
+                    else:
+                        self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG]   {key}: {value}")
+            
             connector = exchange_class(**init_params)
+            
+            # 🔍 DEBUG: 检查连接器创建后的状态（主方法）
+            if connector_name == "bybit":
+                self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Connector created successfully")
+                
+                # 检查是否有必要的属性
+                attrs_to_check = ['_api_factory', '_auth', '_throttler', '_time_synchronizer']
+                for attr in attrs_to_check:
+                    has_attr = hasattr(connector, attr)
+                    attr_value = getattr(connector, attr, None) if has_attr else None
+                    self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: {'EXISTS' if has_attr else 'MISSING'} (value: {'SET' if attr_value else 'NONE'})")
             
             # 等待连接器初始化完成
             try:
