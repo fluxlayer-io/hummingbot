@@ -380,19 +380,20 @@ class OrderManager:
             if missing_params:
                 raise ValueError(f"Missing required API credentials for {connector_name}: {missing_params}")
                 
-            # 对于 Bybit，额外验证 API 密钥格式
+            # 对于 Bybit，记录 API 密钥信息（但不严格验证长度）
             if connector_name == "bybit":
                 api_key = required_params.get("bybit_api_key", "")
                 api_secret = required_params.get("bybit_api_secret", "")
                 
-                if len(api_key) < 20:  # Bybit API key 通常很长
-                    raise ValueError(f"Bybit API key appears to be invalid (too short): {len(api_key)} characters")
-                if len(api_secret) < 30:  # Bybit API secret 通常更长
-                    raise ValueError(f"Bybit API secret appears to be invalid (too short): {len(api_secret)} characters")
-                    
                 self._logger.info(f"🔍 [BYBIT VALIDATION] API key length: {len(api_key)}, secret length: {len(api_secret)}")
                 self._logger.info(f"🔍 [BYBIT VALIDATION] API key prefix: {api_key[:8]}...")
                 self._logger.info(f"🔍 [BYBIT VALIDATION] API secret prefix: {api_secret[:8]}...")
+                
+                # 只做基本检查
+                if len(api_key) < 10:
+                    self._logger.warning(f"⚠️ [BYBIT VALIDATION] API key seems unusually short: {len(api_key)} characters")
+                if len(api_secret) < 20:
+                    self._logger.warning(f"⚠️ [BYBIT VALIDATION] API secret seems unusually short: {len(api_secret)} characters")
             
             # 创建客户端配置
             client_config = ClientConfigMap()
