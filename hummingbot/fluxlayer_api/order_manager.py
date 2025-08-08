@@ -429,15 +429,87 @@ class OrderManager:
                 self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Connector created successfully")
                 
                 # 检查是否有必要的属性
-                attrs_to_check = ['_api_factory', '_auth', '_throttler', '_time_synchronizer']
+                attrs_to_check = ['_api_factory', '_auth', '_throttler', '_time_synchronizer', '_order_book_tracker', '_user_stream_tracker']
                 for attr in attrs_to_check:
                     has_attr = hasattr(connector, attr)
                     attr_value = getattr(connector, attr, None) if has_attr else None
                     self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: {'EXISTS' if has_attr else 'MISSING'} (value: {'SET' if attr_value else 'NONE'})")
+                
+                # 检查连接器类型和继承
+                connector_type = type(connector).__name__
+                connector_mro = [cls.__name__ for cls in type(connector).__mro__]
+                self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Connector type: {connector_type}")
+                self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Connector MRO: {connector_mro}")
+                
+                # 检查连接器的初始状态
+                try:
+                    status_before_network = connector.status_dict if hasattr(connector, 'status_dict') else "NO_STATUS_DICT"
+                    self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] Status before network start: {status_before_network}")
+                except Exception as status_error:
+                    self._logger.error(f"❌ [BYBIT MAIN INIT DEBUG] Failed to get status: {status_error}")
+                
+                # 检查重要的内部属性
+                internal_attrs = ['_trading_pairs', '_trading_rules', '_account_balances']
+                for attr in internal_attrs:
+                    has_attr = hasattr(connector, attr)
+                    if has_attr:
+                        attr_value = getattr(connector, attr, None)
+                        if isinstance(attr_value, dict):
+                            self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: dict with {len(attr_value)} items")
+                        elif isinstance(attr_value, list):
+                            self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: list with {len(attr_value)} items")
+                        else:
+                            self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: {type(attr_value).__name__}")
+                    else:
+                        self._logger.info(f"🔍 [BYBIT MAIN INIT DEBUG] {attr}: MISSING")
             
             # 等待连接器初始化完成
             try:
+                self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Starting network for {connector_name}...")
                 await connector.start_network()
+                self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Network started successfully")
+                
+                # 网络启动后再次检查关键属性
+                if connector_name == "bybit":
+                    self._logger.info(f"🔍 [BYBIT NETWORK DEBUG] Post-network startup check...")
+                    
+                    # 检查网络启动后的状态
+                    try:
+                        status_after_network = connector.status_dict
+                        self._logger.info(f"🔍 [BYBIT NETWORK DEBUG] Status after network start: {status_after_network}")
+                    except Exception as status_error:
+                        self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Failed to get status after network start: {status_error}")
+                    
+                    # 检查关键组件是否被网络启动过程初始化
+                    network_attrs = ['_api_factory', '_order_book_tracker', '_user_stream_tracker']
+                    for attr in network_attrs:
+                        has_attr = hasattr(connector, attr)
+                        attr_value = getattr(connector, attr, None) if has_attr else None
+                        self._logger.info(f"🔍 [BYBIT NETWORK DEBUG] After network start - {attr}: {'EXISTS' if has_attr else 'MISSING'} (value: {'SET' if attr_value else 'NONE'})")
+                    
+                    # 如果仍然缺少关键组件，尝试手动初始化
+                    if not hasattr(connector, '_api_factory') or not connector._api_factory:
+                        self._logger.error(f"❌ [BYBIT NETWORK DEBUG] API factory still missing after network start!")
+                        try:
+                            # 尝试手动创建 API factory
+                            self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Attempting to manually initialize API factory...")
+                            
+                            # 检查连接器是否有创建 API factory 的方法
+                            if hasattr(connector, '_create_api_factory'):
+                                connector._api_factory = connector._create_api_factory()
+                                self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Manually created API factory")
+                            else:
+                                self._logger.error(f"❌ [BYBIT NETWORK DEBUG] No _create_api_factory method found")
+                                
+                        except Exception as factory_error:
+                            self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Failed to manually create API factory: {factory_error}")
+                    
+                    # 检查是否有网络迭代器
+                    if hasattr(connector, '_network_iterator'):
+                        network_status = "running" if connector._network_iterator else "not_running"
+                        self._logger.info(f"🔍 [BYBIT NETWORK DEBUG] Network iterator: {network_status}")
+                    else:
+                        self._logger.warning(f"⚠️ [BYBIT NETWORK DEBUG] No network iterator found")
                 
                 # 🔍 DEBUG: 为特定连接器手动触发余额更新
                 if connector_name == "hyperliquid":
