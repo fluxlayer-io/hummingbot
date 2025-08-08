@@ -313,22 +313,40 @@ class OrderManager:
             self._connector_locks[connector_name] = asyncio.Lock()
         
         async with self._connector_locks[connector_name]:
-            # 检查指定的连接器是否已经在缓存中
-            if connector_name in self._connectors:
-                connector = self._connectors[connector_name]
-                # 检查连接器是否仍然有效
-                try:
-                    if hasattr(connector, 'ready') and connector.ready:
-                        self._logger.info(f"Using cached connector for {connector_name}")
-                        return connector
-                    elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
-                        # 即使 ready 状态不完整，如果有账户余额，也可以使用
-                        self._logger.info(f"Using cached connector for {connector_name} (partial ready state)")
-                        return connector
-                except Exception as e:
-                    self._logger.warning(f"Cached connector validation failed for {connector_name}: {e}")
-                    # 移除无效的连接器
+            # 对于 Bybit，强制重新创建连接器，不使用缓存
+            if connector_name == "bybit":
+                self._logger.info(f"🔧 [BYBIT DEBUG] Force recreating Bybit connector (skipping cache)")
+                if connector_name in self._connectors:
+                    old_connector = self._connectors[connector_name]
+                    try:
+                        # 停止旧连接器
+                        if hasattr(old_connector, 'stop_network'):
+                            await old_connector.stop_network()
+                        self._logger.info(f"🔧 [BYBIT DEBUG] Stopped old connector")
+                    except Exception as stop_error:
+                        self._logger.warning(f"⚠️ [BYBIT DEBUG] Failed to stop old connector: {stop_error}")
+                    
+                    # 删除缓存
                     del self._connectors[connector_name]
+                    self._logger.info(f"🔧 [BYBIT DEBUG] Removed cached connector")
+            else:
+                # 其他交易所保持原逻辑
+                # 检查指定的连接器是否已经在缓存中
+                if connector_name in self._connectors:
+                    connector = self._connectors[connector_name]
+                    # 检查连接器是否仍然有效
+                    try:
+                        if hasattr(connector, 'ready') and connector.ready:
+                            self._logger.info(f"Using cached connector for {connector_name}")
+                            return connector
+                        elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
+                            # 即使 ready 状态不完整，如果有账户余额，也可以使用
+                            self._logger.info(f"Using cached connector for {connector_name} (partial ready state)")
+                            return connector
+                    except Exception as e:
+                        self._logger.warning(f"Cached connector validation failed for {connector_name}: {e}")
+                        # 移除无效的连接器
+                        del self._connectors[connector_name]
             
             # 如果正在进行预初始化，等待一小段时间再检查这个特定的连接器
             if self._is_initializing and connector_name not in self._connectors:
@@ -361,6 +379,20 @@ class OrderManager:
             missing_params = self._validate_required_params(required_params, connector_name)
             if missing_params:
                 raise ValueError(f"Missing required API credentials for {connector_name}: {missing_params}")
+                
+            # 对于 Bybit，额外验证 API 密钥格式
+            if connector_name == "bybit":
+                api_key = required_params.get("bybit_api_key", "")
+                api_secret = required_params.get("bybit_api_secret", "")
+                
+                if len(api_key) < 20:  # Bybit API key 通常很长
+                    raise ValueError(f"Bybit API key appears to be invalid (too short): {len(api_key)} characters")
+                if len(api_secret) < 30:  # Bybit API secret 通常更长
+                    raise ValueError(f"Bybit API secret appears to be invalid (too short): {len(api_secret)} characters")
+                    
+                self._logger.info(f"🔍 [BYBIT VALIDATION] API key length: {len(api_key)}, secret length: {len(api_secret)}")
+                self._logger.info(f"🔍 [BYBIT VALIDATION] API key prefix: {api_key[:8]}...")
+                self._logger.info(f"🔍 [BYBIT VALIDATION] API secret prefix: {api_secret[:8]}...")
             
             # 创建客户端配置
             client_config = ClientConfigMap()
