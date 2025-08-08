@@ -374,18 +374,40 @@ class HyperliquidExchange(ExchangePyBase):
                 "cloid": order_id,
             }
         }
+        # 🔍 DEBUG: 下单前的参数检查
+        self.logger().info(f"🔍 [HYPERLIQUID ORDER DEBUG] Placing order {order_id}")
+        self.logger().info(f"🔍 [HYPERLIQUID ORDER DEBUG] API params: {api_params}")
+        self.logger().info(f"🔍 [HYPERLIQUID ORDER DEBUG] API key: {self.hyperliquid_api_key}")
+        self.logger().info(f"🔍 [HYPERLIQUID ORDER DEBUG] Secret key: {'Set' if self.hyperliquid_secret_key else 'Not Set'}")
+        self.logger().info(f"🔍 [HYPERLIQUID ORDER DEBUG] Use vault: {self._use_vault}")
+        
         order_result = await self._api_post(
             path_url = CONSTANTS.CREATE_ORDER_URL,
             data = api_params,
             is_auth_required = True)
+            
+        # 🔍 DEBUG: API 响应检查
+        self.logger().info(f"✅ [HYPERLIQUID ORDER DEBUG] Raw order result: {order_result}")
+        
         if order_result.get("status") == "err":
-            raise IOError(f"Error submitting order {order_id}: {order_result['response']}")
+            self.logger().error(f"❌ [HYPERLIQUID ORDER DEBUG] Order failed with status 'err': {order_result}")
+            raise IOError(f"Error submitting order {order_id}: {order_result.get('response', order_result)}")
         else:
+            self.logger().info(f"✅ [HYPERLIQUID ORDER DEBUG] Order status: {order_result.get('status')}")
             o_order_result = order_result['response']["data"]["statuses"][0]
+            self.logger().info(f"✅ [HYPERLIQUID ORDER DEBUG] Order status detail: {o_order_result}")
+            
         if "error" in o_order_result:
+            self.logger().error(f"❌ [HYPERLIQUID ORDER DEBUG] Order error: {o_order_result['error']}")
             raise IOError(f"Error submitting order {order_id}: {o_order_result['error']}")
+            
         o_data = o_order_result.get("resting") or o_order_result.get("filled")
+        if not o_data:
+            self.logger().error(f"❌ [HYPERLIQUID ORDER DEBUG] No order data returned: {o_order_result}")
+            raise IOError(f"No order data returned for {order_id}: {o_order_result}")
+            
         o_id = str(o_data["oid"])
+        self.logger().info(f"✅ [HYPERLIQUID ORDER DEBUG] Order placed successfully with exchange ID: {o_id}")
         return (o_id, self.current_timestamp)
 
     async def _update_trade_history(self):
@@ -645,26 +667,81 @@ class HyperliquidExchange(ExchangePyBase):
         """
         Calls the REST API to update total and available balances.
         """
+        # 🔍 DEBUG: 开始余额更新调试
+        self.logger().info("🔍 [HYPERLIQUID DEBUG] Starting _update_balances")
+        self.logger().info(f"🔍 [HYPERLIQUID DEBUG] hyperliquid_api_key = {self.hyperliquid_api_key}")
+        self.logger().info(f"🔍 [HYPERLIQUID DEBUG] USER_STATE_TYPE = {CONSTANTS.USER_STATE_TYPE}")
+        self.logger().info(f"🔍 [HYPERLIQUID DEBUG] ACCOUNT_INFO_URL = {CONSTANTS.ACCOUNT_INFO_URL}")
+        self.logger().info(f"🔍 [HYPERLIQUID DEBUG] Current _account_balances size = {len(self._account_balances)}")
+        
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
 
-        account_info = await self._api_post(path_url=CONSTANTS.ACCOUNT_INFO_URL,
-                                            data={"type": CONSTANTS.USER_STATE_TYPE,
-                                                  "user": self.hyperliquid_api_key},
-                                            )
-        balances = account_info["balances"]
-        for balance_entry in balances:
-            asset_name = balance_entry["coin"]
-            free_balance = Decimal(balance_entry["total"]) - Decimal(balance_entry["hold"])
-            total_balance = Decimal(balance_entry["total"])
-            self._account_available_balances[asset_name] = free_balance
-            self._account_balances[asset_name] = total_balance
-            remote_asset_names.add(asset_name)
+        try:
+            # 🔍 DEBUG: API 调用参数
+            api_data = {"type": CONSTANTS.USER_STATE_TYPE, "user": self.hyperliquid_api_key}
+            self.logger().info(f"🔍 [HYPERLIQUID DEBUG] API call data = {api_data}")
+            
+            account_info = await self._api_post(path_url=CONSTANTS.ACCOUNT_INFO_URL,
+                                                data=api_data,
+                                                )
+            
+            # 🔍 DEBUG: API 响应
+            self.logger().info(f"✅ [HYPERLIQUID DEBUG] API Response type = {type(account_info)}")
+            self.logger().info(f"✅ [HYPERLIQUID DEBUG] API Response keys = {list(account_info.keys()) if isinstance(account_info, dict) else 'Not a dict'}")
+            self.logger().info(f"✅ [HYPERLIQUID DEBUG] Raw API Response = {account_info}")
+            
+            if not isinstance(account_info, dict):
+                self.logger().error(f"❌ [HYPERLIQUID DEBUG] API response is not a dict: {type(account_info)}")
+                return
+                
+            if "balances" not in account_info:
+                self.logger().error(f"❌ [HYPERLIQUID DEBUG] No 'balances' key in response. Available keys: {list(account_info.keys())}")
+                return
+                
+            balances = account_info["balances"]
+            self.logger().info(f"💰 [HYPERLIQUID DEBUG] Found {len(balances)} balance entries")
+            
+            for i, balance_entry in enumerate(balances):
+                self.logger().info(f"💰 [HYPERLIQUID DEBUG] Balance {i+1}: {balance_entry}")
+                
+                asset_name = balance_entry["coin"]
+                total_str = balance_entry["total"]
+                hold_str = balance_entry["hold"]
+                
+                free_balance = Decimal(total_str) - Decimal(hold_str)
+                total_balance = Decimal(total_str)
+                
+                self.logger().info(f"💰 [HYPERLIQUID DEBUG] Processing {asset_name}: total={total_str}, hold={hold_str}, free={free_balance}")
+                
+                self._account_available_balances[asset_name] = free_balance
+                self._account_balances[asset_name] = total_balance
+                remote_asset_names.add(asset_name)
+                
+                self.logger().info(f"✅ [HYPERLIQUID DEBUG] Updated {asset_name} balances - Available: {self._account_available_balances[asset_name]}, Total: {self._account_balances[asset_name]}")
 
-        asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-        for asset_name in asset_names_to_remove:
-            del self._account_available_balances[asset_name]
-            del self._account_balances[asset_name]
+            # 🔍 DEBUG: 移除旧余额
+            asset_names_to_remove = local_asset_names.difference(remote_asset_names)
+            if asset_names_to_remove:
+                self.logger().info(f"🗑️  [HYPERLIQUID DEBUG] Removing old assets: {asset_names_to_remove}")
+                for asset_name in asset_names_to_remove:
+                    del self._account_available_balances[asset_name]
+                    del self._account_balances[asset_name]
+            
+            # 🔍 DEBUG: 最终状态
+            self.logger().info(f"✅ [HYPERLIQUID DEBUG] Balance update complete!")
+            self.logger().info(f"✅ [HYPERLIQUID DEBUG] Final _account_balances = {dict(self._account_balances)}")
+            self.logger().info(f"✅ [HYPERLIQUID DEBUG] Final _account_available_balances = {dict(self._account_available_balances)}")
+            
+        except Exception as e:
+            # 🔍 DEBUG: 错误处理
+            self.logger().error(f"❌ [HYPERLIQUID DEBUG] _update_balances failed with exception: {e}")
+            import traceback
+            error_details = traceback.format_exc()
+            self.logger().error(f"❌ [HYPERLIQUID DEBUG] Full traceback:\n{error_details}")
+            
+            # 不要让异常传播，防止整个连接器崩溃
+            return
 
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
         client_order_id = tracked_order.client_order_id
