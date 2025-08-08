@@ -419,7 +419,7 @@ class OrderManager:
                         self._logger.error(f"❌ [HYPERLIQUID DEBUG] Manual balance update failed (fallback): {e}")
                 
                 elif connector_name == "bybit":
-                    self._logger.info(f"🔍 [BYBIT DEBUG] Manually triggering balance update for {connector_name}")
+                    self._logger.info(f"🔍 [BYBIT DEBUG] Manually triggering initialization for {connector_name}")
                     try:
                         # 检查 Bybit 连接器的网络组件
                         if hasattr(connector, '_user_stream_tracker'):
@@ -430,36 +430,37 @@ class OrderManager:
                             api_factory_status = "initialized" if connector._api_factory else "not_initialized"
                             self._logger.info(f"🔍 [BYBIT DEBUG] API factory: {api_factory_status}")
                         
-                        # 尝试直接 API 调用测试余额
-                        if hasattr(connector, '_api_factory') and connector._api_factory:
-                            try:
-                                self._logger.info(f"🔧 [BYBIT DEBUG] Testing direct API call for balances...")
-                                import hummingbot.connector.exchange.bybit.bybit_web_utils as bybit_utils
+                        # 检查订单簿跟踪器状态
+                        if hasattr(connector, '_order_book_tracker'):
+                            ob_tracker = connector._order_book_tracker
+                            if ob_tracker:
+                                ob_count = len(ob_tracker.order_books)
+                                self._logger.info(f"🔍 [BYBIT DEBUG] Order book tracker has {ob_count} order books")
                                 
-                                response = await bybit_utils.api_request(
-                                    path="/v5/account/wallet-balance",
-                                    api_factory=connector._api_factory,
-                                    method=bybit_utils.RESTMethod.GET,
-                                    is_auth_required=True,
-                                    params={"accountType": "UNIFIED"}
-                                )
-                                self._logger.info(f"✅ [BYBIT DEBUG] Direct API response: {response}")
-                                
-                                # 如果 API 调用成功但 connector 余额为空，可能是解析问题
-                                if response and 'result' in response:
-                                    self._logger.info(f"🔍 [BYBIT DEBUG] API returned data, but connector balances empty. This suggests a parsing issue.")
-                                
-                            except Exception as api_error:
-                                self._logger.error(f"❌ [BYBIT DEBUG] Direct API call failed: {api_error}")
-                                
-                                # 检查具体的错误类型
-                                error_str = str(api_error).lower()
-                                if any(keyword in error_str for keyword in ['api key', 'signature', 'auth', 'permission', '403', '401']):
-                                    self._logger.error(f"❌ [BYBIT DEBUG] This is an API authentication issue!")
-                                elif 'timeout' in error_str or 'network' in error_str:
-                                    self._logger.error(f"❌ [BYBIT DEBUG] This is a network connectivity issue!")
+                                # 检查是否有 BTC-USDT 的订单簿
+                                if trading_pair in ob_tracker.order_books:
+                                    order_book = ob_tracker.order_books[trading_pair]
+                                    bid_count = len(order_book.bid_entries())
+                                    ask_count = len(order_book.ask_entries())
+                                    self._logger.info(f"🔍 [BYBIT DEBUG] {trading_pair} order book: {bid_count} bids, {ask_count} asks")
                                 else:
-                                    self._logger.error(f"❌ [BYBIT DEBUG] Unknown API error type")
+                                    self._logger.warning(f"⚠️ [BYBIT DEBUG] No order book found for {trading_pair}")
+                                
+                                # 尝试手动启动订单簿数据流
+                                try:
+                                    self._logger.info(f"🔧 [BYBIT DEBUG] Attempting to manually start order book tracker...")
+                                    if hasattr(ob_tracker, '_order_book_stream_listener_task') and not ob_tracker._order_book_stream_listener_task:
+                                        ob_tracker.start()
+                                        self._logger.info(f"✅ [BYBIT DEBUG] Order book tracker started")
+                                    else:
+                                        self._logger.info(f"🔍 [BYBIT DEBUG] Order book tracker already running")
+                                        
+                                except Exception as ob_error:
+                                    self._logger.error(f"❌ [BYBIT DEBUG] Failed to start order book tracker: {ob_error}")
+                            else:
+                                self._logger.error(f"❌ [BYBIT DEBUG] Order book tracker is None")
+                        else:
+                            self._logger.error(f"❌ [BYBIT DEBUG] No order book tracker found")
                         
                         # 尝试手动调用余额更新
                         if hasattr(connector, '_update_balances'):
@@ -472,8 +473,26 @@ class OrderManager:
                         else:
                             self._logger.warning(f"⚠️ [BYBIT DEBUG] No _update_balances method found")
                             
+                        # 等待一下让订单簿数据加载
+                        self._logger.info(f"🔧 [BYBIT DEBUG] Waiting 5 seconds for order book data to load...")
+                        await asyncio.sleep(5)
+                        
+                        # 再次检查订单簿
+                        if hasattr(connector, '_order_book_tracker') and connector._order_book_tracker:
+                            ob_tracker = connector._order_book_tracker
+                            ob_count = len(ob_tracker.order_books)
+                            self._logger.info(f"🔍 [BYBIT DEBUG] After waiting, order book tracker has {ob_count} order books")
+                            
+                            if trading_pair in ob_tracker.order_books:
+                                order_book = ob_tracker.order_books[trading_pair]
+                                bid_count = len(order_book.bid_entries())
+                                ask_count = len(order_book.ask_entries())
+                                self._logger.info(f"✅ [BYBIT DEBUG] {trading_pair} order book now has: {bid_count} bids, {ask_count} asks")
+                            else:
+                                self._logger.warning(f"⚠️ [BYBIT DEBUG] Still no order book found for {trading_pair}")
+                            
                     except Exception as e:
-                        self._logger.error(f"❌ [BYBIT DEBUG] Manual balance update failed: {e}")
+                        self._logger.error(f"❌ [BYBIT DEBUG] Manual initialization failed: {e}")
                         import traceback
                         self._logger.error(f"❌ [BYBIT DEBUG] Stack trace: {traceback.format_exc()}")
                 
@@ -639,6 +658,42 @@ class OrderManager:
                     # 检查连接器状态
                     status_dict = connector.status_dict
                     self._logger.info(f"🔍 [BYBIT API DEBUG] Connector status: {status_dict}")
+                    
+                    # 检查订单簿状态
+                    if hasattr(connector, '_order_book_tracker') and connector._order_book_tracker:
+                        ob_tracker = connector._order_book_tracker
+                        ob_count = len(ob_tracker.order_books)
+                        self._logger.info(f"🔍 [BYBIT API DEBUG] Order book tracker has {ob_count} order books")
+                        
+                        if trading_pair in ob_tracker.order_books:
+                            order_book = ob_tracker.order_books[trading_pair]
+                            bid_count = len(order_book.bid_entries())
+                            ask_count = len(order_book.ask_entries())
+                            self._logger.info(f"🔍 [BYBIT API DEBUG] {trading_pair} order book: {bid_count} bids, {ask_count} asks")
+                            
+                            if bid_count == 0 or ask_count == 0:
+                                self._logger.error(f"❌ [BYBIT API DEBUG] Order book for {trading_pair} has insufficient data!")
+                                # 尝试快速重新获取订单簿数据
+                                try:
+                                    self._logger.info(f"🔧 [BYBIT API DEBUG] Attempting to force refresh order book data...")
+                                    await asyncio.sleep(3)  # 等待3秒让数据加载
+                                    
+                                    # 再次检查
+                                    bid_count_after = len(order_book.bid_entries())
+                                    ask_count_after = len(order_book.ask_entries())
+                                    self._logger.info(f"🔍 [BYBIT API DEBUG] After refresh - {trading_pair}: {bid_count_after} bids, {ask_count_after} asks")
+                                except Exception as refresh_error:
+                                    self._logger.error(f"❌ [BYBIT API DEBUG] Order book refresh failed: {refresh_error}")
+                        else:
+                            self._logger.error(f"❌ [BYBIT API DEBUG] No order book found for {trading_pair}!")
+                            return {
+                                "success": False,
+                                "error": f"Order book not available for {trading_pair}. Please wait for market data to load.",
+                                "exchange": connector_name,
+                                "trading_pair": trading_pair,
+                                "amount": amount,
+                                "side": "BUY" if is_buy else "SELL"
+                            }
                     
             except Exception as e:
                 return {
