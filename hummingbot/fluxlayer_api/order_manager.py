@@ -585,7 +585,11 @@ class OrderManager:
                     status_dict = connector.status_dict
                     
                     # 检查关键组件是否已就绪
-                    account_balance_ready = status_dict.get('account_balance', False)
+                    # 使用实际余额数据作为后备检查（特别是对 Binance 和 Bybit）
+                    account_balance_flag = status_dict.get('account_balance', False)
+                    actual_balance_exists = hasattr(connector, '_account_balances') and len(connector._account_balances) > 0
+                    account_balance_ready = account_balance_flag or actual_balance_exists
+                    
                     symbols_mapping_ready = status_dict.get('symbols_mapping_initialized', False) 
                     trading_rules_ready = status_dict.get('trading_rule_initialized', False)
                     
@@ -596,8 +600,13 @@ class OrderManager:
                         order_books_ready = True  # 如果不需要等待订单簿，直接设为 True
                     
                     # 记录当前状态
+                    balance_details = f"flag={account_balance_flag}, actual_data={actual_balance_exists}"
+                    if actual_balance_exists:
+                        balance_count = len(connector._account_balances)
+                        balance_details += f"({balance_count} assets)"
+                    
                     self._logger.info(f"Connector {connector_name} status (attempt {i+1}/{max_wait_cycles}): "
-                                    f"balance={account_balance_ready}, symbols={symbols_mapping_ready}, "
+                                    f"balance={account_balance_ready} [{balance_details}], symbols={symbols_mapping_ready}, "
                                     f"rules={trading_rules_ready}, orderbooks={order_books_ready}")
                     
                     # 如果关键组件都准备好了，就继续
@@ -610,9 +619,15 @@ class OrderManager:
                 # 最终状态检查
                 final_status = connector.status_dict
                 if not final_status.get('account_balance', False):
-                    # 对于 Bybit，如果网络有问题，我们放宽余额要求
-                    if connector_name == "bybit":
-                        self._logger.warning(f"⚠️ [BYBIT DEBUG] Account balance not loaded, but continuing anyway due to network issues")
+                    # 对于 Binance 和 Bybit，如果有实际余额数据，允许继续
+                    if connector_name in ["bybit", "binance"]:
+                        # 检查是否有实际的余额数据
+                        actual_balance_exists = hasattr(connector, '_account_balances') and len(connector._account_balances) > 0
+                        if actual_balance_exists:
+                            balance_count = len(connector._account_balances)
+                            self._logger.warning(f"⚠️ [{connector_name.upper()} DEBUG] Account balance status flag not set, but balance data exists ({balance_count} assets). Continuing...")
+                        else:
+                            self._logger.warning(f"⚠️ [{connector_name.upper()} DEBUG] Account balance not loaded, but continuing anyway due to network issues")
                     else:
                         raise RuntimeError(f"Account balance not loaded for {connector_name}. Cannot initialize connector without account information.")
                 

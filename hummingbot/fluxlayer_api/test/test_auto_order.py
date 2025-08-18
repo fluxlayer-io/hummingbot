@@ -184,7 +184,7 @@ class AutoOrderManager:
     
     async def get_market_price(self, exchange_name: str, trading_pair: str) -> Optional[float]:
         """
-        获取指定交易对的当前市价（强制使用实时价格）
+        获取指定交易对的当前市价（使用修复后的 order_manager）
         
         参数:
             exchange_name: 交易所名称
@@ -194,7 +194,12 @@ class AutoOrderManager:
             float: 当前价格，如果获取失败返回 None
         """
         try:
-            # 主要方法：从目标交易所获取实时价格
+            # USDC 稳定币价格
+            if "USDC" in trading_pair:
+                print(f"   💵 使用 USDC 稳定币价格: $1.00")
+                return 1.0
+            
+            # 使用修复后的 order_manager 获取价格（现在对 Binance 有容错处理）
             try:
                 connector = await self.order_manager._get_or_create_connector(
                     exchange_name, trading_pair, wait_for_orderbook=False
@@ -203,30 +208,19 @@ class AutoOrderManager:
                 if hasattr(connector, '_get_last_traded_price'):
                     price = await connector._get_last_traded_price(trading_pair)
                     if price and price > 0:
-                        # 验证价格合理性
                         if self._validate_price(trading_pair, float(price)):
                             print(f"   📈 获取 {exchange_name} {trading_pair} 实时价格: ${price:.2f}")
                             return float(price)
                         else:
                             print(f"   ⚠️ {exchange_name} {trading_pair} 价格异常: ${price:.2f}")
+                            return None
                             
-            except Exception as real_price_error:
-                print(f"   ⚠️ 无法从 {exchange_name} 获取 {trading_pair} 实时价格: {real_price_error}")
-            
-            # 备用方法：从其他交易所获取相同资产的价格
-            if "BTC" in trading_pair or "UBTC" in trading_pair:
-                backup_price = await self._get_btc_price_from_other_exchanges(exclude_exchange=exchange_name)
-                if backup_price:
-                    print(f"   🔄 使用其他交易所的 BTC 参考价格: ${backup_price:.2f}")
-                    return backup_price
-                    
-            elif "USDC" in trading_pair:
-                # USDC 是稳定币，价格约为 1 美元
-                print(f"   💵 使用 USDC 稳定币价格: $1.00")
-                return 1.0
+            except Exception as connector_error:
+                print(f"   ⚠️ 无法从 {exchange_name} 获取 {trading_pair} 实时价格: {connector_error}")
+                return None
             
             # 如果所有方法都失败，返回 None
-            print(f"   ❌ 无法从任何途径获取 {trading_pair} 价格")
+            print(f"   ❌ 无法从 {exchange_name} 获取 {trading_pair} 价格")
             return None
                 
         except Exception as e:
@@ -253,40 +247,6 @@ class AutoOrderManager:
         else:
             # 其他代币价格应该大于 0
             return price > 0
-    
-    async def _get_btc_price_from_other_exchanges(self, exclude_exchange: str = None) -> Optional[float]:
-        """
-        从其他交易所获取 BTC 价格作为备用
-        
-        参数:
-            exclude_exchange: 要排除的交易所
-            
-        返回:
-            float: BTC 价格，如果获取失败返回 None
-        """
-        backup_exchanges = ["binance", "bybit", "okx"]
-        if exclude_exchange:
-            backup_exchanges = [ex for ex in backup_exchanges if ex != exclude_exchange]
-        
-        for backup_exchange in backup_exchanges:
-            try:
-                # 尝试从备用交易所获取 BTC 价格
-                backup_connector = await self.order_manager._get_or_create_connector(
-                    backup_exchange, "BTC-USDT", wait_for_orderbook=False
-                )
-                
-                if hasattr(backup_connector, '_get_last_traded_price'):
-                    backup_price = await backup_connector._get_last_traded_price("BTC-USDT")
-                    if backup_price and backup_price > 0:
-                        if self._validate_price("BTC-USDT", float(backup_price)):
-                            print(f"   🔄 从 {backup_exchange} 获取 BTC 备用价格: ${backup_price:.2f}")
-                            return float(backup_price)
-                            
-            except Exception as e:
-                print(f"   ⚠️ 从 {backup_exchange} 获取备用价格失败: {e}")
-                continue
-        
-        return None
     
     def calculate_purchase_amount(self, target_value_usd: float, current_price: float) -> float:
         """
@@ -361,13 +321,13 @@ class AutoOrderManager:
             # 购买 BTC
             if status["needs_btc"]:
                 await self._execute_single_purchase(
-                    exchange_name, "BTC", status["shortages_usd"]["BTC"], executed_orders
+                    exchange_name, "BTC", executed_orders
                 )
             
             # 购买 USDC (Hyperliquid 跳过，因为它原生支持 USDC)
             if status["needs_usdc"] and exchange_name != "hyperliquid":
                 await self._execute_single_purchase(
-                    exchange_name, "USDC", status["shortages_usd"]["USDC"], executed_orders
+                    exchange_name, "USDC", executed_orders
                 )
         
         # 执行统计
@@ -398,7 +358,6 @@ class AutoOrderManager:
         self, 
         exchange_name: str, 
         asset: str, 
-        shortage_usd: float, 
         executed_orders: List[Dict]
     ):
         """
@@ -407,7 +366,6 @@ class AutoOrderManager:
         参数:
             exchange_name: 交易所名称
             asset: 资产名称 (BTC/USDC)
-            shortage_usd: 缺口金额（美元）
             executed_orders: 执行订单列表
         """
         try:
@@ -423,10 +381,10 @@ class AutoOrderManager:
                 print(f"   ❌ 无法获取 {exchange_name} {trading_pair} 价格")
                 return
             
-            # 计算购买数量
-            purchase_amount = self.calculate_purchase_amount(shortage_usd, current_price)
+            # 计算购买数量（使用固定的目标金额，不是缺口金额）
+            purchase_amount = self.calculate_purchase_amount(self.target_value_usd, current_price)
             
-            print(f"   💰 购买 {asset}: {purchase_amount:.6f} {asset} (${shortage_usd:.2f}) 在 {trading_pair}")
+            print(f"   💰 购买 {asset}: {purchase_amount:.6f} {asset} (${self.target_value_usd:.2f}) 在 {trading_pair}")
             
             # 执行市价买单
             order_result = await self.order_manager.place_order(
@@ -443,7 +401,7 @@ class AutoOrderManager:
                 "asset": asset,
                 "trading_pair": trading_pair,
                 "amount": purchase_amount,
-                "target_value_usd": shortage_usd,
+                "target_value_usd": self.target_value_usd,
                 "price": current_price,
                 "success": order_result.get("success", False),
                 "order_id": order_result.get("order_id"),
@@ -456,7 +414,7 @@ class AutoOrderManager:
             if order_result.get("success"):
                 order_id = order_result.get('order_id')
                 print(f"   ✅ 订单提交成功: {order_id}")
-                self.execution_stats["total_cost_usdt"] += shortage_usd
+                self.execution_stats["total_cost_usdt"] += self.target_value_usd
                 
                 # 简单的订单状态检查（等待3秒后检查一次）
                 try:
