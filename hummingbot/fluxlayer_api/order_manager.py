@@ -646,6 +646,27 @@ class OrderManager:
                 
                 self._logger.info(f"Connector {connector_name} initialized successfully. Final status: {final_status}")
                 
+                # 🔍 DEBUG: 详细检查初始化后的 order book tracker 状态
+                if hasattr(connector, 'order_book_tracker') and connector.order_book_tracker:
+                    tracker = connector.order_book_tracker
+                    self._logger.info(f"🔍 [INIT DEBUG] Order book tracker exists and ready")
+                    tracked_pairs = list(tracker.order_books.keys()) if hasattr(tracker, 'order_books') else []
+                    self._logger.info(f"🔍 [INIT DEBUG] Tracked pairs after initialization: {tracked_pairs}")
+                    
+                    # 检查每个 order book 的状态
+                    for pair in tracked_pairs:
+                        if pair in tracker.order_books:
+                            book = tracker.order_books[pair]
+                            has_bids = hasattr(book, 'bid_entries')
+                            has_asks = hasattr(book, 'ask_entries')
+                            self._logger.info(f"🔍 [INIT DEBUG] {pair}: bid_entries={has_bids}, ask_entries={has_asks}")
+                else:
+                    self._logger.warning(f"⚠️ [INIT DEBUG] No order book tracker after initialization!")
+                
+                # 检查初始化的交易对
+                if hasattr(connector, '_trading_pairs'):
+                    self._logger.info(f"🔍 [INIT DEBUG] Connector _trading_pairs: {connector._trading_pairs}")
+                
             except Exception as e:
                 self._logger.error(f"Failed to initialize connector {connector_name}: {e}")
                 raise RuntimeError(f"Connector {connector_name} failed to initialize: {e}")
@@ -724,6 +745,32 @@ class OrderManager:
                 print(f"🔍 [ORDERBOOK DEBUG] place_order called for {connector_name} with wait_for_orderbook=True")
                 self._logger.info(f"🔍 [ORDERBOOK DEBUG] place_order called for {connector_name} with wait_for_orderbook=True")
                 connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=True)
+                
+                # 🔍 DEBUG: 详细检查 order book 状态
+                self._logger.info(f"🔍 [ORDERBOOK DEBUG] Connector ready status: {connector.ready}")
+                self._logger.info(f"🔍 [ORDERBOOK DEBUG] Connector status dict: {connector.status_dict}")
+                
+                # 检查 order book tracker 状态
+                if hasattr(connector, 'order_book_tracker') and connector.order_book_tracker:
+                    tracker = connector.order_book_tracker
+                    available_pairs = list(tracker.order_books.keys())
+                    self._logger.info(f"🔍 [ORDERBOOK DEBUG] Available order books: {available_pairs}")
+                    
+                    if trading_pair in tracker.order_books:
+                        order_book = tracker.order_books[trading_pair]
+                        bid_count = len(order_book.bid_entries()) if hasattr(order_book, 'bid_entries') else 0
+                        ask_count = len(order_book.ask_entries()) if hasattr(order_book, 'ask_entries') else 0
+                        self._logger.info(f"🔍 [ORDERBOOK DEBUG] {trading_pair}: {bid_count} bids, {ask_count} asks")
+                    else:
+                        self._logger.error(f"❌ [ORDERBOOK DEBUG] {trading_pair} NOT FOUND in order books! Available: {available_pairs}")
+                else:
+                    self._logger.error(f"❌ [ORDERBOOK DEBUG] No order book tracker found!")
+                
+                # 检查连接器支持的交易对
+                if hasattr(connector, '_trading_pairs'):
+                    self._logger.info(f"🔍 [CONNECTOR DEBUG] Supported trading pairs: {connector._trading_pairs}")
+                else:
+                    self._logger.warning(f"⚠️ [CONNECTOR DEBUG] No _trading_pairs attribute found")
                 
                 # 🔍 DEBUG: 专门为 Bybit 添加 API 认证检查
                 if connector_name == "bybit":
@@ -899,6 +946,19 @@ class OrderManager:
                 order_price = Decimal(str(price)) if price is not None else None
                 
             try:
+                # 🔍 DEBUG: 执行下单前的详细状态检查
+                self._logger.info(f"🔍 [ORDER DEBUG] About to place {order_type} {'BUY' if is_buy else 'SELL'} order")
+                self._logger.info(f"🔍 [ORDER DEBUG] Trading pair: {trading_pair}, Amount: {amount}")
+                self._logger.info(f"🔍 [ORDER DEBUG] Price: {price}, Order price: {order_price}")
+                
+                # 再次检查 order book 状态（防止异步变化）
+                if hasattr(connector, 'order_book_tracker') and connector.order_book_tracker:
+                    if trading_pair in connector.order_book_tracker.order_books:
+                        self._logger.info(f"🔍 [ORDER DEBUG] Order book for {trading_pair} exists before order")
+                    else:
+                        available = list(connector.order_book_tracker.order_books.keys())
+                        self._logger.error(f"❌ [ORDER DEBUG] Order book for {trading_pair} missing before order! Available: {available}")
+                
                 # 执行下单
                 if is_buy:
                     order_id = connector.buy(
@@ -917,7 +977,12 @@ class OrderManager:
                         **kwargs
                     )
                 
-                self._logger.info(f"Order submitted to {connector_name} with local ID: {order_id}")
+                self._logger.info(f"🔍 [ORDER DEBUG] Order submitted to {connector_name} with local ID: {order_id}")
+                
+                # 🔍 DEBUG: 检查订单提交后的连接器状态
+                if hasattr(connector, 'order_book_tracker') and connector.order_book_tracker:
+                    post_order_pairs = list(connector.order_book_tracker.order_books.keys())
+                    self._logger.info(f"🔍 [ORDER DEBUG] Order books after submission: {post_order_pairs}")
                 
                 # 立即返回成功结果，不等待订单状态
                 return {
