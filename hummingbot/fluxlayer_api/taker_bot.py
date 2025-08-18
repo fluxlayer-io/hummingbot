@@ -1238,70 +1238,38 @@ class ArbitrageExecutor:
             )
             if pending_maker_orders:
                 for order in [pending_maker_orders]:
-                    source_chain_for_taker = order.target_chain
-                    private_key = get_private_key_from_env(source_chain_for_taker)
-                    if not private_key:
-                        continue
-
-                    source_token_for_taker = order.o_token
-                    i_amount_for_taker = order.oamount
-
-                    # 获取源链适配器
-                    src_adapter = self.get_adapter(source_chain_for_taker)
-                    # 获取源地址
-                    src_addr = src_adapter.get_address_from_private_key(private_key)
-                    logger.info(f"👛 源地址 ({source_chain_for_taker}): {src_addr}")
-
-                    # 检查或创建 MPC 钱包
-                    logger.info("🔍 检查MPC钱包存在性...")
-                    if not mpc_client.check_mpc_exists(src_addr):
-                        logger.info(f"🆕 创建MPC钱包 for {src_addr}")
-                        wallet_id = mpc_client.create_mpc_wallet(src_addr)
-                        logger.info(f"✅ MPC钱包已创建，ID: {wallet_id}")
-                    else:
-                        wallet_id = mpc_client.get_mpc_wallet_id(src_addr)
-                        logger.info(f"✅ 找到现有MPC钱包，ID: {wallet_id}")
-
-                    # 检查是否禁用转账
-                    disable_transfer = os.getenv("DISABLE_TRANSFER", "").lower() == "true"
+                    logger.info(f"Processing order {order.order_id} with quota_id: {order.quota_id}")
                     
-                    # 初始化 taker order 参数
-                    taker_order_params = {
-                        "order_id": order.order_id,
-                        "wallet_id": wallet_id
-                    }
-                    
-                    if disable_transfer:
-                        logger.info("🚫 DISABLE_TRANSFER=true，跳过转账和余额检查")
-                    else:
-                        # 执行转账相关逻辑
-                        await self._execute_transfer_logic(
-                            mpc_client, src_adapter, private_key, src_addr, source_chain_for_taker,
-                            source_token_for_taker, i_amount_for_taker, wallet_id, taker_order_params
-                        )
-                        
-                        # 如果转账逻辑执行失败，taker_order_params 会被清空
-                        if not taker_order_params:
-                            return
-
-                    # 创建taker订单
-                    logger.info("🔨 创建taker订单...")
-                    logger.info(f"📋 订单参数: {list(taker_order_params.keys())}")
-
                     try:
-                        result = mpc_client.create_taker_order(**taker_order_params)
-                        logger.info(f"✅ Taker订单创建成功: {result}")
+                        # 获取报价信息
+                        quota_info = mpc_client.get_quota(order.quota_id)
+                        if not quota_info:
+                            logger.warning(f"Failed to get quota info for quota_id {order.quota_id}")
+                            continue
+                        
+                        # 检查 solver_id 是否为自己
+                        # if quota_info.get('solver_id') != 1:
+                        #     logger.info(f"Quota {order.quota_id} belongs to solver {quota_info.get('solver_id')}, not mine (1)")
+                        #     continue
 
+                        # logger.info(f"Processing my own order {order.order_id} with quota_id {order.quota_id}")
+
+                        # 通过 quota_id 查找对应的 CEX connector
+                        target_cex_id = mpc_client.get_cex_connector_by_quota(order.quota_id)
+                        
+                        if not target_cex_id:
+                            logger.warning(f"No CEX connector mapping found for quota_id {order.quota_id}")
+                            continue
+                        
+                        logger.info(f"Found matching CEX connector: {target_cex_id}")
+                        
+                        # 准备并行执行 CEX 下单和 taker 逻辑
+                        await self._process_order_with_cex(order, target_cex_id, mpc_client)
+                        return  # 处理完成，退出循环
+                        
                     except Exception as e:
-                        logger.error(f"❌ Taker订单创建失败: {e}")
-                        # 如果是requests异常，打印响应内容
-                        if hasattr(e, 'response'):
-                            try:
-                                error_detail = e.response.json()
-                                logger.error(f"❌ 错误详情: {error_detail}")
-                            except:
-                                logger.error(f"❌ 响应内容: {e.response.text}")
-                        return
+                        logger.error(f"Error processing order {order.order_id} with quota: {e}")
+                        continue
 
         except Exception as e:
             logger.error(f"💥 套利执行失败: {str(e)}")
@@ -1382,6 +1350,113 @@ class ArbitrageExecutor:
             logger.error(f"❌ 转账逻辑执行失败: {e}")
             taker_order_params.clear()
             return
+
+    async def _process_order_with_cex(self, order, target_cex_id, mpc_client):
+        """处理带有 quota_id 的订单，并行执行 CEX 下单和 taker 逻辑"""
+        try:
+            # 准备执行现有 taker 逻辑的参数
+            source_chain_for_taker = order.target_chain
+            private_key = get_private_key_from_env(source_chain_for_taker)
+            
+            if not private_key:
+                logger.error(f"No private key found for {source_chain_for_taker}")
+                return
+            
+            # 获取适配器和地址
+            src_adapter = self.get_adapter(source_chain_for_taker)
+            src_addr = src_adapter.get_address_from_private_key(private_key)
+            logger.info(f"👛 源地址 ({source_chain_for_taker}): {src_addr}")
+            
+            # 检查或创建 MPC 钱包
+            if not mpc_client.check_mpc_exists(src_addr):
+                wallet_id = mpc_client.create_mpc_wallet(src_addr)
+            else:
+                wallet_id = mpc_client.get_mpc_wallet_id(src_addr)
+                
+            # 创建两个并行任务
+            # 任务1: CEX 下单
+            from hummingbot.fluxlayer_api.order_manager import get_order_manager
+            order_manager = get_order_manager()
+            
+            cex_order_task = asyncio.create_task(
+                order_manager.place_order(
+                    connector_name=target_cex_id,
+                    trading_pair=f"{order.o_token}-{order.i_token}",
+                    amount=float(order.oamount),
+                    is_buy=False,  # 卖出获得的代币
+                    order_type="MARKET"
+                )
+            )
+            
+            # 任务2: 现有的 taker 逻辑
+            taker_task = asyncio.create_task(
+                self._execute_original_taker_logic(
+                    order, mpc_client, src_adapter, private_key, src_addr,
+                    source_chain_for_taker, wallet_id
+                )
+            )
+            
+            # 等待两个任务完成
+            try:
+                cex_result, taker_result = await asyncio.gather(
+                    cex_order_task,
+                    taker_task,
+                    return_exceptions=True
+                )
+                
+                # 处理结果
+                if isinstance(cex_result, Exception):
+                    logger.error(f"CEX order failed: {cex_result}")
+                else:
+                    logger.info(f"CEX order result on {target_cex_id}: {cex_result}")
+                
+                if isinstance(taker_result, Exception):
+                    logger.error(f"Taker order failed: {taker_result}")
+                else:
+                    logger.info(f"✅ Taker订单创建成功: {taker_result}")
+                    
+            except Exception as e:
+                logger.error(f"Error in parallel execution: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error processing order with CEX: {e}")
+
+    async def _execute_original_taker_logic(self, order, mpc_client, src_adapter, private_key,
+                                           src_addr, source_chain_for_taker, wallet_id):
+        """执行原有的 taker 逻辑"""
+        try:
+            source_token_for_taker = order.o_token
+            i_amount_for_taker = order.oamount
+            
+            # 初始化 taker order 参数
+            taker_order_params = {
+                "order_id": order.order_id,
+                "wallet_id": wallet_id
+            }
+            
+            # 检查是否禁用转账
+            disable_transfer = os.getenv("DISABLE_TRANSFER", "").lower() == "true"
+            
+            if disable_transfer:
+                logger.info("🚫 DISABLE_TRANSFER=true，跳过转账和余额检查")
+            else:
+                # 执行转账相关逻辑
+                await self._execute_transfer_logic(
+                    mpc_client, src_adapter, private_key, src_addr, source_chain_for_taker,
+                    source_token_for_taker, i_amount_for_taker, wallet_id, taker_order_params
+                )
+                
+                # 如果转账逻辑执行失败，taker_order_params 会被清空
+                if not taker_order_params:
+                    return None
+            
+            # 创建 taker 订单
+            result = mpc_client.create_taker_order(**taker_order_params)
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in original taker logic: {e}")
+            return None
 
 
 async def execute_arbitrage_with_fluxlayer():

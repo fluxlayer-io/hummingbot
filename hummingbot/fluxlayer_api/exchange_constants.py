@@ -75,6 +75,15 @@ CHAIN_GAS_TOKEN_MAP = {
     "Solana": "SOL",
 }
 
+# 稳定币定义 - 所有主流稳定币都按 1:1 美元处理
+STABLECOINS = {'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDD', 'USDP', 'FRAX', 'LUSD', 'sUSD', 'GUSD'}
+
+# Hyperliquid 符号映射
+HYPERLIQUID_SYMBOL_MAPPING = {
+    "BTC": "UBTC",
+    "USDC": "USDT0"
+}
+
 
 def load_api_keys_from_env():
     """从环境变量加载API密钥到交易所配置中"""
@@ -82,7 +91,7 @@ def load_api_keys_from_env():
         # 更新 Binance API 密钥
         EXCHANGES["binance"]["required_params"]["binance_api_key"] = os.getenv("BINANCE_API_KEY", "")
         EXCHANGES["binance"]["required_params"]["binance_api_secret"] = os.getenv("BINANCE_API_SECRET", "")
-        
+
         # 更新 Bybit API 密钥
         EXCHANGES["bybit"]["required_params"]["bybit_api_key"] = os.getenv("BYBIT_API_KEY", "")
         EXCHANGES["bybit"]["required_params"]["bybit_api_secret"] = os.getenv("BYBIT_API_SECRET", "")
@@ -130,6 +139,110 @@ def validate_exchange_support(exchange_name: str) -> bool:
         bool: True 如果支持，False 如果不支持
     """
     return exchange_name in EXCHANGES
+
+
+def get_trading_symbol(exchange_name: str, base_token: str, quote_token: str = "USDT") -> str:
+    """
+    获取交易所特定的交易对符号，优化以支持新的RFQ逻辑
+    
+    参数:
+        exchange_name (str): 交易所名称
+        base_token (str): 基础代币
+        quote_token (str): 报价代币，默认为 USDT
+        
+    返回:
+        str: 格式化的交易对符号
+        
+    抛出:
+        ValueError: 如果尝试生成无效的交易对（如稳定币对稳定币）
+    """
+    print(f"🔀 [SYMBOL DEBUG] get_trading_symbol called: exchange={exchange_name}, base={base_token}, quote={quote_token}")
+    
+    # 检查是否为无效的稳定币对稳定币交易对
+    if is_stablecoin(base_token) and is_stablecoin(quote_token):
+        error_msg = f"Invalid trading pair: {base_token}-{quote_token} (stablecoin to stablecoin)"
+        print(f"❌ [SYMBOL DEBUG] {error_msg}")
+        raise ValueError(error_msg)
+    
+    if exchange_name == "hyperliquid":
+        # Hyperliquid 特殊映射逻辑
+        if base_token == "BTC":
+            # BTC -> UBTC-USDC
+            mapped_base = "UBTC"
+            mapped_quote = "USDC"
+            print(f"🔀 [SYMBOL DEBUG] Hyperliquid: BTC mapped to {mapped_base}-{mapped_quote}")
+            result = f"{mapped_base}-{mapped_quote}"
+        elif base_token == "ETH":
+            # ETH -> UETH-USDC  
+            mapped_base = "UETH"
+            mapped_quote = "USDC"
+            print(f"🔀 [SYMBOL DEBUG] Hyperliquid: ETH mapped to {mapped_base}-{mapped_quote}")
+            result = f"{mapped_base}-{mapped_quote}"
+        else:
+            # 其他代币使用 X-USDC 格式
+            mapped_base = base_token
+            mapped_quote = "USDC"
+            print(f"🔀 [SYMBOL DEBUG] Hyperliquid: {base_token} using as-is with USDC quote")
+            result = f"{mapped_base}-{mapped_quote}"
+            
+        print(f"✅ [SYMBOL DEBUG] Hyperliquid result: {result}")
+        return result
+    else:
+        # 其他交易所使用标准格式
+        # 优先使用主流代币对稳定币的配对 (如 BTC-USDT, ETH-USDT)
+        if is_stablecoin(base_token) and not is_stablecoin(quote_token):
+            # 如果base是稳定币但quote不是，这可能不是常见的交易对
+            print(f"⚠️ [SYMBOL DEBUG] Unusual pair: stablecoin {base_token} as base with {quote_token} as quote")
+        
+        result = f"{base_token}-{quote_token}"
+        print(f"✅ [SYMBOL DEBUG] {exchange_name} result: {result}")
+        return result
+
+
+def get_hyperliquid_supported_tokens() -> list:
+    """
+    获取 Hyperliquid 支持的基础代币列表
+    
+    返回:
+        list: 支持的基础代币列表
+    """
+    return ["BTC", "ETH"]  # 基于API调查结果，支持 BTC->UBTC-USDC 和 ETH->UETH-USDC
+
+
+def validate_hyperliquid_token(base_token: str) -> bool:
+    """
+    验证代币是否在 Hyperliquid 上受支持
+    
+    参数:
+        base_token (str): 基础代币符号
+        
+    返回:
+        bool: 是否受支持
+    """
+    return base_token in get_hyperliquid_supported_tokens()
+
+
+def is_stablecoin(token: str) -> bool:
+    """
+    检查代币是否为稳定币
+    
+    参数:
+        token (str): 代币符号
+        
+    返回:
+        bool: 是否为稳定币
+    """
+    return token.upper() in STABLECOINS
+
+
+def get_stablecoin_price() -> float:
+    """
+    获取稳定币价格 - 始终返回 1.0
+    
+    返回:
+        float: 稳定币价格 (1.0)
+    """
+    return 1.0
 
 
 # 自动加载环境变量中的API密钥

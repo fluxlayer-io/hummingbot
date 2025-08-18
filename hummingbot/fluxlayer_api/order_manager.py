@@ -60,7 +60,7 @@ class OrderManager:
                 "binance": "BTC-USDT",
                 "bybit": "BTC-USDT", 
                 "okx": "BTC-USDT",
-                "hyperliquid": "UBTC-USDC"  # Hyperliquid 现货市场使用 UBTC
+                "hyperliquid": "UBTC-USDC"  # Hyperliquid 使用 UBTC-USDC 格式
             }
         
         supported_exchanges = get_supported_exchanges()
@@ -488,38 +488,13 @@ class OrderManager:
                     else:
                         self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Web assistants factory missing after network start!")
                     
-                    # 如果仍然缺少订单簿跟踪器，尝试手动创建
-                    if not hasattr(connector, '_order_book_tracker') or not connector._order_book_tracker:
-                        self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Order book tracker still missing!")
-                        try:
-                            self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Attempting to manually initialize order book tracker...")
-                            
-                            if hasattr(connector, '_create_order_book_data_source') and hasattr(connector, '_set_order_book_tracker'):
-                                from hummingbot.core.data_type.order_book_tracker import OrderBookTracker
-                                
-                                # 创建订单簿数据源
-                                orderbook_ds = connector._create_order_book_data_source()
-                                self._logger.info(f"🔧 [BYBIT NETWORK DEBUG] Created order book data source")
-                                
-                                # 创建并设置订单簿跟踪器
-                                tracker = OrderBookTracker(data_source=orderbook_ds, trading_pairs=connector._trading_pairs)
-                                connector._set_order_book_tracker(tracker)
-                                self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Manually created order book tracker")
-                                
-                                # 启动订单簿跟踪器
-                                if hasattr(connector, '_order_book_tracker') and connector._order_book_tracker:
-                                    connector._order_book_tracker.start()
-                                    self._logger.info(f"✅ [BYBIT NETWORK DEBUG] Order book tracker started")
-                                else:
-                                    self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Order book tracker still not set after creation")
-                                
-                            else:
-                                self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Missing required methods for order book tracker creation")
-                                
-                        except Exception as tracker_error:
-                            self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Failed to manually create order book tracker: {tracker_error}")
-                            import traceback
-                            self._logger.error(f"❌ [BYBIT NETWORK DEBUG] Tracker error traceback: {traceback.format_exc()}")
+                    # 注释掉订单簿跟踪器初始化逻辑（市价单不需要）
+                    # if not hasattr(connector, '_order_book_tracker') or not connector._order_book_tracker:
+                    #     self._logger.info(f"ℹ️ [BYBIT NETWORK DEBUG] Order book tracker not available, but not needed for market orders")
+                    # 
+                    # # 对于市价单，我们不需要完整的订单簿数据
+                    # # 订单簿跟踪器的初始化可能很慢，而且市价单不依赖这些数据
+                    self._logger.info(f"ℹ️ [BYBIT NETWORK DEBUG] Skipping order book tracker initialization for market order support")
                     
                     # 检查是否有网络迭代器
                     if hasattr(connector, '_network_iterator'):
@@ -552,37 +527,15 @@ class OrderManager:
                             api_factory_status = "initialized" if connector._web_assistants_factory else "not_initialized"
                             self._logger.info(f"🔍 [BYBIT DEBUG] Web assistants factory: {api_factory_status}")
                         
-                        # 检查订单簿跟踪器状态
-                        if hasattr(connector, '_order_book_tracker'):
-                            ob_tracker = connector._order_book_tracker
-                            if ob_tracker:
-                                ob_count = len(ob_tracker.order_books)
-                                self._logger.info(f"🔍 [BYBIT DEBUG] Order book tracker has {ob_count} order books")
-                                
-                                # 检查是否有 BTC-USDT 的订单簿
-                                if trading_pair in ob_tracker.order_books:
-                                    order_book = ob_tracker.order_books[trading_pair]
-                                    bid_count = len(order_book.bid_entries())
-                                    ask_count = len(order_book.ask_entries())
-                                    self._logger.info(f"🔍 [BYBIT DEBUG] {trading_pair} order book: {bid_count} bids, {ask_count} asks")
-                                else:
-                                    self._logger.warning(f"⚠️ [BYBIT DEBUG] No order book found for {trading_pair}")
-                                
-                                # 尝试手动启动订单簿数据流
-                                try:
-                                    self._logger.info(f"🔧 [BYBIT DEBUG] Attempting to manually start order book tracker...")
-                                    if hasattr(ob_tracker, '_order_book_stream_listener_task') and not ob_tracker._order_book_stream_listener_task:
-                                        ob_tracker.start()
-                                        self._logger.info(f"✅ [BYBIT DEBUG] Order book tracker started")
-                                    else:
-                                        self._logger.info(f"🔍 [BYBIT DEBUG] Order book tracker already running")
-                                        
-                                except Exception as ob_error:
-                                    self._logger.error(f"❌ [BYBIT DEBUG] Failed to start order book tracker: {ob_error}")
-                            else:
-                                self._logger.error(f"❌ [BYBIT DEBUG] Order book tracker is None")
-                        else:
-                            self._logger.error(f"❌ [BYBIT DEBUG] No order book tracker found")
+                        # 注释掉订单簿跟踪器检查逻辑（市价单不需要）
+                        # if hasattr(connector, '_order_book_tracker'):
+                        #     ob_tracker = connector._order_book_tracker
+                        #     if ob_tracker:
+                        #         ob_count = len(ob_tracker.order_books)
+                        #         self._logger.info(f"🔍 [BYBIT DEBUG] Order book tracker has {ob_count} order books")
+                        # else:
+                        #     self._logger.info(f"ℹ️ [BYBIT DEBUG] No order book tracker found, but not needed for market orders")
+                        self._logger.info(f"ℹ️ [BYBIT DEBUG] Skipping order book tracker checks for market order support")
                         
                         # 尝试手动调用余额更新
                         if hasattr(connector, '_update_balances'):
@@ -595,23 +548,10 @@ class OrderManager:
                         else:
                             self._logger.warning(f"⚠️ [BYBIT DEBUG] No _update_balances method found")
                             
-                        # 等待一下让订单簿数据加载
-                        self._logger.info(f"🔧 [BYBIT DEBUG] Waiting 5 seconds for order book data to load...")
-                        await asyncio.sleep(5)
-                        
-                        # 再次检查订单簿
-                        if hasattr(connector, '_order_book_tracker') and connector._order_book_tracker:
-                            ob_tracker = connector._order_book_tracker
-                            ob_count = len(ob_tracker.order_books)
-                            self._logger.info(f"🔍 [BYBIT DEBUG] After waiting, order book tracker has {ob_count} order books")
-                            
-                            if trading_pair in ob_tracker.order_books:
-                                order_book = ob_tracker.order_books[trading_pair]
-                                bid_count = len(order_book.bid_entries())
-                                ask_count = len(order_book.ask_entries())
-                                self._logger.info(f"✅ [BYBIT DEBUG] {trading_pair} order book now has: {bid_count} bids, {ask_count} asks")
-                            else:
-                                self._logger.warning(f"⚠️ [BYBIT DEBUG] Still no order book found for {trading_pair}")
+                        # 注释掉订单簿数据等待逻辑（市价单不需要）
+                        # self._logger.info(f"🔧 [BYBIT DEBUG] Waiting 5 seconds for order book data to load...")
+                        # await asyncio.sleep(5)
+                        self._logger.info(f"ℹ️ [BYBIT DEBUG] Skipping order book data loading wait for market order support")
                             
                     except Exception as e:
                         self._logger.error(f"❌ [BYBIT DEBUG] Manual initialization failed: {e}")
@@ -628,19 +568,10 @@ class OrderManager:
                     symbols_mapping_ready = status_dict.get('symbols_mapping_initialized', False) 
                     trading_rules_ready = status_dict.get('trading_rule_initialized', False)
                     
-                    # 对于订单簿，我们先检查是否至少有一个交易对的订单簿数据
-                    order_books_ready = status_dict.get('order_books_initialized', False)
-                    if not order_books_ready and hasattr(connector, '_order_book_tracker'):
-                        # 检查是否至少有一个订单簿有数据
-                        try:
-                            for trading_pair in connector._trading_pairs or [trading_pair]:
-                                order_book = connector._order_book_tracker.order_books.get(trading_pair)
-                                if order_book and len(order_book.bid_entries()) > 0 and len(order_book.ask_entries()) > 0:
-                                    order_books_ready = True
-                                    self._logger.info(f"Order book data found for {trading_pair}")
-                                    break
-                        except Exception as e:
-                            self._logger.debug(f"Error checking order book data: {e}")
+                    # 注释掉订单簿状态检查（市价单不需要）
+                    # order_books_ready = status_dict.get('order_books_initialized', False)
+                    # 对于市价单，我们不检查订单簿状态，直接设为True
+                    order_books_ready = True  # 市价单不需要订单簿数据
                     
                     # 记录当前状态
                     self._logger.info(f"Connector {connector_name} status (attempt {i+1}/{max_wait_cycles}): "

@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
@@ -12,6 +12,7 @@ class TradingPairMetadata(BaseModel):
     is_buy: bool
     source_amount: Decimal
     target_amount: Decimal
+    cex_connector_id: Optional[str] = None
 
 class FluxLayerMetadata(BaseModel):
     api_endpoint: str

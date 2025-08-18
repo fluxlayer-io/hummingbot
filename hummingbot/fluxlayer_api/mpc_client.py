@@ -23,6 +23,7 @@ class MakerOrder:
     sig: str
     created_at: str
     updated_at: str
+    quota_id: Optional[int] = None
 
 @dataclass
 class MPCAddress:
@@ -86,7 +87,8 @@ class MPCClient:
             wallet_id: str,
             tx_hash: Optional[str] = "fake",
             slippage: Optional[str] = "0.001",
-            sig: Optional[str] = "fake"
+            sig: Optional[str] = "fake",
+            quota_id: Optional[int] = None
     ) -> Any:
         payload = {
             "srcChain": src_chain,
@@ -100,6 +102,9 @@ class MPCClient:
             "slippage": slippage,
             "sig": sig
         }
+        
+        if quota_id is not None:
+            payload["quotaId"] = quota_id
 
         return self._post("/maker-orders", payload)
 
@@ -119,3 +124,38 @@ class MPCClient:
             "txHash": tx_hash,
             "walletId": wallet_id
         })
+
+    def create_quota(self, solver_id: int, source_amount: str, source_price: str, target_amount: str, target_price: str) -> Any:
+        """创建报价记录"""
+        payload = {
+            "solverId": solver_id,
+            "sourceAmount": source_amount,
+            "sourcePrice": source_price,
+            "targetAmount": target_amount,
+            "targetPrice": target_price
+        }
+        return self._post("/quota", payload)
+
+    def get_quota(self, quota_id: int) -> Any:
+        """获取报价信息"""
+        return self._get(f"/quota/{quota_id}")
+
+    def create_cex_quota_mapping(self, cex_connector_id: str, quota_id: int) -> Any:
+        """创建 CEX-Quota 映射"""
+        payload = {
+            "cexConnectorId": cex_connector_id,
+            "quotaId": quota_id
+        }
+        return self._post("/cex-quota-mapping", payload)
+
+    def get_quota_by_cex_connector(self, cex_connector_id: str) -> Any:
+        """通过 CEX connector 获取报价"""
+        return self._get(f"/cex-quota/{cex_connector_id}")
+    
+    def get_cex_connector_by_quota(self, quota_id: int) -> Optional[str]:
+        """通过 quota_id 获取对应的 CEX connector ID"""
+        try:
+            result = self._get(f"/quota/{quota_id}/cex")
+            return result if isinstance(result, str) else None
+        except Exception:
+            return None

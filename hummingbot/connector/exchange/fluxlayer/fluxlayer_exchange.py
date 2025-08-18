@@ -258,9 +258,28 @@ class FluxlayerExchange(ExchangePyBase):
         """
         trading_pair_rules = exchange_info_dict.get("symbols", [])
         retval = []
-        for rule in filter(fluxlayer_utils.is_exchange_information_valid, trading_pair_rules):
+        supported_symbols = await self.trading_pair_symbol_map()
+        
+        for rule in trading_pair_rules:
             try:
-                trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("symbol"))
+                # 检查是否为有效的交易信息
+                if not fluxlayer_utils.is_exchange_information_valid(rule):
+                    self.logger().debug(f"Skipping invalid trading pair: {rule.get('symbol', 'UNKNOWN')}")
+                    continue
+                
+                symbol = rule.get("symbol")
+                # 检查交易对是否在支持的符号映射中
+                if symbol not in supported_symbols:
+                    self.logger().warning(f"Trading pair {symbol} not supported by Fluxlayer, skipping.")
+                    continue
+                
+                trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=symbol)
+                
+                # 检查是否为不支持的交易对（如 USDC-USDT）
+                if self._is_unsupported_trading_pair(trading_pair):
+                    self.logger().warning(f"Trading pair {trading_pair} is not supported (stablecoin-to-stablecoin), skipping.")
+                    continue
+                
                 filters = rule.get("filters")
                 price_filter = [f for f in filters if f.get("filterType") == "PRICE_FILTER"][0]
                 lot_size_filter = [f for f in filters if f.get("filterType") == "LOT_SIZE"][0]
@@ -564,6 +583,26 @@ class FluxlayerExchange(ExchangePyBase):
         parts = name.split("_")
         return parts[0] if len(parts) == 1 else parts[1]
 
+    def _is_unsupported_trading_pair(self, trading_pair: str) -> bool:
+        """
+        检查是否为不支持的交易对，主要是稳定币对稳定币的交易对
+        """
+        # 常见稳定币列表
+        stablecoins = {
+            'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDD', 'USDP', 
+            'FRAX', 'LUSD', 'sUSD', 'GUSD', 'USTC', 'UST'
+        }
+        
+        try:
+            base, quote = trading_pair.upper().split('-')
+            # 如果基础资产和报价资产都是稳定币，则不支持
+            if base in stablecoins and quote in stablecoins:
+                return True
+            return False
+        except (ValueError, AttributeError):
+            # 如果无法解析交易对，返回 False（让其他检查机制处理）
+            return False
+
     async def get_quote_price(self, trading_pair: str, is_buy: bool, amount: Decimal) -> Optional[Decimal]:
         """获取交易对的报价"""
         try:
@@ -598,6 +637,7 @@ class FluxlayerExchange(ExchangePyBase):
                 self.metadata.trading_pairs[trading_pair].target_amount = Decimal(str(response["target_amount"]))
                 self.metadata.trading_pairs[trading_pair].source_amount = Decimal(str(response["source_amount"]))
                 self.metadata.trading_pairs[trading_pair].is_buy = is_buy
+                self.metadata.trading_pairs[trading_pair].cex_connector_id = response["exchange"]
                 self.logger().info(f"best cex is {response["exchange"]}")
                 return price
             else:

@@ -132,6 +132,7 @@ class MockPairMeta:
         self.is_buy = True
         self.target_amount = 0.001
         self.source_amount = 0.0001
+        self.cex_connector_id = "binance"  # 默认值，实际会从 RFQ 更新
 
 
 class MockFluxLayerExchange:
@@ -1362,6 +1363,47 @@ class ArbitrageExecutor:
                 # 如果转账逻辑执行失败，maker_order_params 会被清空
                 if not maker_order_params:
                     return
+
+            # 在创建 maker 订单之前，先创建报价和 CEX 映射
+            log_info("📊 创建报价记录...")
+            try:
+                # 1. 创建报价记录
+                quota_result = mpc_client.create_quota(
+                    solver_id=1,  # 硬编码为 1
+                    source_amount=str(i_amount),
+                    source_price="45000.0",  # 示例价格，可以根据需要调整
+                    target_amount=str(o_amount),
+                    target_price="46000.0"   # 示例价格，可以根据需要调整
+                )
+                
+                if not quota_result:
+                    log_error("❌ 创建报价失败")
+                    return
+                    
+                quota_id = quota_result.get('id')
+                log_info(f"✅ 报价创建成功，ID: {quota_id}")
+                
+                # 2. 建立 CEX-Quota 映射
+                log_info("🔗 创建 CEX-Quota 映射...")
+                cex_connector_id = pair_meta.cex_connector_id  # 从 RFQ 响应中获取
+                log_info(f"📱 使用 CEX connector: {cex_connector_id}")
+                mapping_result = mpc_client.create_cex_quota_mapping(
+                    cex_connector_id=cex_connector_id,
+                    quota_id=quota_id
+                )
+                
+                if not mapping_result:
+                    log_error("❌ 创建 CEX-Quota 映射失败")
+                    return
+                    
+                log_info(f"✅ CEX-Quota 映射创建成功: {mapping_result}")
+                
+                # 3. 在 maker_order_params 中添加 quota_id
+                maker_order_params["quota_id"] = quota_id
+                
+            except Exception as e:
+                log_error(f"❌ 创建报价或映射失败: {e}")
+                return
 
             # 创建maker订单
             log_info("🔨 创建maker订单...")
