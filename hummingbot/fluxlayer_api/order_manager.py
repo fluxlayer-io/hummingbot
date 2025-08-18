@@ -309,6 +309,7 @@ class OrderManager:
         返回:
             连接器实例
         """
+        self._logger.info(f"🚀 [CONNECTOR DEBUG] _get_or_create_connector called for {connector_name}, wait_for_orderbook={wait_for_orderbook}")
         # 为每个交易所创建独立的锁
         if connector_name not in self._connector_locks:
             self._connector_locks[connector_name] = asyncio.Lock()
@@ -323,9 +324,18 @@ class OrderManager:
                         self._logger.info(f"Using cached connector for {connector_name}")
                         return connector
                     elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
-                        # 即使 ready 状态不完整，如果有账户余额，也可以使用
-                        self._logger.info(f"Using cached connector for {connector_name} (partial ready state)")
-                        return connector
+                        # 检查是否需要等待订单簿
+                        if wait_for_orderbook:
+                            status_dict = connector.status_dict
+                            if status_dict.get('order_books_initialized', False):
+                                self._logger.info(f"Using cached connector for {connector_name} (with order books)")
+                                return connector
+                            else:
+                                self._logger.info(f"Cached connector for {connector_name} lacks order books, will recreate")
+                        else:
+                            # 即使 ready 状态不完整，如果有账户余额且不需要订单簿，也可以使用
+                            self._logger.info(f"Using cached connector for {connector_name} (partial ready state)")
+                            return connector
                 except Exception as e:
                     self._logger.warning(f"Cached connector validation failed for {connector_name}: {e}")
                     # 移除无效的连接器
@@ -340,10 +350,21 @@ class OrderManager:
                 if connector_name in self._connectors:
                     connector = self._connectors[connector_name]
                     try:
-                        if (hasattr(connector, 'ready') and connector.ready) or \
-                           (hasattr(connector, '_account_balances') and len(connector._account_balances) > 0):
+                        if hasattr(connector, 'ready') and connector.ready:
                             self._logger.info(f"Using connector initialized during background process for {connector_name}")
                             return connector
+                        elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
+                            # 检查是否需要等待订单簿
+                            if wait_for_orderbook:
+                                status_dict = connector.status_dict
+                                if status_dict.get('order_books_initialized', False):
+                                    self._logger.info(f"Using background connector for {connector_name} (with order books)")
+                                    return connector
+                                else:
+                                    self._logger.info(f"Background connector for {connector_name} lacks order books")
+                            else:
+                                self._logger.info(f"Using background connector for {connector_name} (partial ready state)")
+                                return connector
                     except Exception as e:
                         self._logger.warning(f"Background initialized connector validation failed for {connector_name}: {e}")
                         # 移除无效连接器，继续创建新的
@@ -568,10 +589,11 @@ class OrderManager:
                     symbols_mapping_ready = status_dict.get('symbols_mapping_initialized', False) 
                     trading_rules_ready = status_dict.get('trading_rule_initialized', False)
                     
-                    # 注释掉订单簿状态检查（市价单不需要）
-                    # order_books_ready = status_dict.get('order_books_initialized', False)
-                    # 对于市价单，我们不检查订单簿状态，直接设为True
-                    order_books_ready = True  # 市价单不需要订单簿数据
+                    # 根据 wait_for_orderbook 参数决定是否检查订单簿状态
+                    if wait_for_orderbook:
+                        order_books_ready = status_dict.get('order_books_initialized', False)
+                    else:
+                        order_books_ready = True  # 如果不需要等待订单簿，直接设为 True
                     
                     # 记录当前状态
                     self._logger.info(f"Connector {connector_name} status (attempt {i+1}/{max_wait_cycles}): "
@@ -579,8 +601,8 @@ class OrderManager:
                                     f"rules={trading_rules_ready}, orderbooks={order_books_ready}")
                     
                     # 如果关键组件都准备好了，就继续
-                    if account_balance_ready and symbols_mapping_ready and trading_rules_ready:
-                        self._logger.info(f"Core components ready for {connector_name}")
+                    if account_balance_ready and symbols_mapping_ready and trading_rules_ready and order_books_ready:
+                        self._logger.info(f"All components ready for {connector_name}")
                         break
                     
                     await asyncio.sleep(2)
@@ -593,6 +615,14 @@ class OrderManager:
                         self._logger.warning(f"⚠️ [BYBIT DEBUG] Account balance not loaded, but continuing anyway due to network issues")
                     else:
                         raise RuntimeError(f"Account balance not loaded for {connector_name}. Cannot initialize connector without account information.")
+                
+                # 检查是否需要等待订单簿
+                self._logger.info(f"🔍 [ORDERBOOK DEBUG] Checking orderbook requirement for {connector_name}: wait_for_orderbook={wait_for_orderbook}, order_books_initialized={final_status.get('order_books_initialized', False)}")
+                if wait_for_orderbook and not final_status.get('order_books_initialized', False):
+                    self._logger.error(f"🚨 [ORDERBOOK DEBUG] Order books not ready for {connector_name}, throwing error")
+                    raise RuntimeError(f"Order books not initialized for {connector_name}. Cannot proceed without order book data.")
+                else:
+                    self._logger.info(f"✅ [ORDERBOOK DEBUG] Orderbook check passed for {connector_name}")
                 
                 # 对于其他组件，只记录警告但不阻塞
                 if not connector.ready:
@@ -676,7 +706,9 @@ class OrderManager:
             
             # 获取或创建连接器实例
             try:
-                connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=False)
+                print(f"🔍 [ORDERBOOK DEBUG] place_order called for {connector_name} with wait_for_orderbook=True")
+                self._logger.info(f"🔍 [ORDERBOOK DEBUG] place_order called for {connector_name} with wait_for_orderbook=True")
+                connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=True)
                 
                 # 🔍 DEBUG: 专门为 Bybit 添加 API 认证检查
                 if connector_name == "bybit":
@@ -948,7 +980,7 @@ class OrderManager:
             
             # 获取连接器实例
             try:
-                connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=False)
+                connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=True)
             except Exception as e:
                 return {
                     "success": False,
@@ -1073,7 +1105,7 @@ class OrderManager:
                 }
             
             # 获取连接器实例
-            connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=False)
+            connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=True)
             
             # 取消订单
             connector.cancel(trading_pair, order_id)
