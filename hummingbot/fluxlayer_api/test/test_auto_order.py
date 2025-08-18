@@ -51,6 +51,57 @@ class AutoOrderManager:
             "exchanges_processed": 0
         }
         
+        # 自动订单管理器专用连接器（包含所需的所有交易对）
+        self._auto_order_connectors = {}
+        
+    async def _get_or_create_multi_pair_connector(self, exchange_name: str) -> Optional[Any]:
+        """
+        获取或创建支持多交易对的连接器（专门为自动订单管理器优化）
+        
+        参数:
+            exchange_name: 交易所名称
+            
+        返回:
+            连接器实例或None
+        """
+        if exchange_name in self._auto_order_connectors:
+            return self._auto_order_connectors[exchange_name]
+        
+        print(f"🔧 为 {exchange_name} 创建多交易对连接器...")
+        
+        try:
+            # 获取该交易所需要的所有交易对
+            required_pairs = []
+            for asset, trading_pair in self.trading_pairs[exchange_name].items():
+                if trading_pair:  # 跳过 None 值（如 hyperliquid 的 USDC）
+                    required_pairs.append(trading_pair)
+            
+            print(f"   📊 {exchange_name} 需要的交易对: {required_pairs}")
+            
+            if not required_pairs:
+                print(f"   ⚠️ {exchange_name} 没有需要的交易对")
+                return None
+            
+            # 使用 order_manager 创建包含多个交易对的连接器
+            # 这里我们选择第一个交易对作为主要交易对，但连接器会加载所有相关市场数据
+            primary_pair = required_pairs[0]
+            
+            connector = await self.order_manager._get_or_create_connector(
+                exchange_name, primary_pair, wait_for_orderbook=True
+            )
+            
+            if connector:
+                print(f"   ✅ {exchange_name} 连接器创建成功")
+                self._auto_order_connectors[exchange_name] = connector
+                return connector
+            else:
+                print(f"   ❌ {exchange_name} 连接器创建失败")
+                return None
+                
+        except Exception as e:
+            print(f"   ❌ {exchange_name} 连接器创建异常: {e}")
+            return None
+        
     async def check_all_exchanges_assets(self) -> Dict[str, Any]:
         """
         检查所有交易所的 BTC 和 USDC 资产状态
@@ -305,6 +356,16 @@ class AutoOrderManager:
         
         # 初始化订单管理器
         await self.order_manager.initialize_all_connectors()
+        
+        # 为需要下单的交易所预先创建多交易对连接器
+        print(f"🔧 预初始化多交易对连接器...")
+        for exchange_name, status in asset_analysis["asset_status"].items():
+            if status["status"] == "success" and (status["needs_btc"] or status["needs_usdc"]):
+                try:
+                    await self._get_or_create_multi_pair_connector(exchange_name)
+                except Exception as e:
+                    print(f"   ⚠️ {exchange_name} 多交易对连接器初始化失败: {e}")
+                    continue
         
         for exchange_name, status in asset_analysis["asset_status"].items():
             if status["status"] != "success":

@@ -218,9 +218,19 @@ class OrderManager:
             
             while time.time() - start_time < max_wait_time:
                 # 检查账户余额是否加载
-                if len(connector._account_balances) > 0:
-                    self._logger.debug(f"Account balance loaded for {connector_name}")
-                    break
+                try:
+                    if hasattr(connector._account_balances, '__len__'):
+                        balance_count = len(connector._account_balances)
+                        if balance_count > 0:
+                            self._logger.debug(f"Account balance loaded for {connector_name} ({balance_count} assets)")
+                            break
+                    else:
+                        # _account_balances 可能是生成器，尝试检查是否存在
+                        if connector._account_balances:
+                            self._logger.debug(f"Account balance loaded for {connector_name} (generator)")
+                            break
+                except (TypeError, AttributeError) as e:
+                    self._logger.debug(f"Cannot check account balance for {connector_name}: {e}")
                 await asyncio.sleep(1)
             
             # 尝试更新交易规则（快速失败）
@@ -297,6 +307,31 @@ class OrderManager:
         
         return missing_params
 
+    def _safe_check_balances(self, account_balances) -> bool:
+        """安全检查账户余额是否存在，处理生成器类型"""
+        try:
+            if hasattr(account_balances, '__len__'):
+                return len(account_balances) > 0
+            else:
+                # 可能是生成器，尝试转换或检查
+                return bool(account_balances)
+        except (TypeError, AttributeError):
+            return False
+    
+    def _safe_get_balance_count(self, account_balances) -> int:
+        """安全获取账户余额数量，处理生成器类型"""
+        try:
+            if hasattr(account_balances, '__len__'):
+                return len(account_balances)
+            else:
+                # 可能是生成器，尝试转换为列表
+                try:
+                    return len(list(account_balances)) if account_balances else 0
+                except TypeError:
+                    return 1 if account_balances else 0
+        except (TypeError, AttributeError):
+            return 0
+
     async def _get_or_create_connector(self, connector_name: str, trading_pair: str, wait_for_orderbook: bool = False):
         """
         获取或创建连接器实例（优先使用预缓存的连接器）
@@ -323,7 +358,7 @@ class OrderManager:
                     if hasattr(connector, 'ready') and connector.ready:
                         self._logger.info(f"Using cached connector for {connector_name}")
                         return connector
-                    elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
+                    elif hasattr(connector, '_account_balances') and self._safe_check_balances(connector._account_balances):
                         # 检查是否需要等待订单簿
                         if wait_for_orderbook:
                             status_dict = connector.status_dict
@@ -353,7 +388,7 @@ class OrderManager:
                         if hasattr(connector, 'ready') and connector.ready:
                             self._logger.info(f"Using connector initialized during background process for {connector_name}")
                             return connector
-                        elif hasattr(connector, '_account_balances') and len(connector._account_balances) > 0:
+                        elif hasattr(connector, '_account_balances') and self._safe_check_balances(connector._account_balances):
                             # 检查是否需要等待订单簿
                             if wait_for_orderbook:
                                 status_dict = connector.status_dict
@@ -564,7 +599,7 @@ class OrderManager:
                             self._logger.info(f"✅ [BYBIT DEBUG] Manual balance update completed")
                             
                             # 检查余额是否真的更新了
-                            balance_count = len(connector._account_balances)
+                            balance_count = self._safe_get_balance_count(connector._account_balances)
                             self._logger.info(f"🔍 [BYBIT DEBUG] Balance count after update: {balance_count}")
                         else:
                             self._logger.warning(f"⚠️ [BYBIT DEBUG] No _update_balances method found")
@@ -587,7 +622,7 @@ class OrderManager:
                     # 检查关键组件是否已就绪
                     # 使用实际余额数据作为后备检查（特别是对 Binance 和 Bybit）
                     account_balance_flag = status_dict.get('account_balance', False)
-                    actual_balance_exists = hasattr(connector, '_account_balances') and len(connector._account_balances) > 0
+                    actual_balance_exists = hasattr(connector, '_account_balances') and self._safe_check_balances(connector._account_balances)
                     account_balance_ready = account_balance_flag or actual_balance_exists
                     
                     symbols_mapping_ready = status_dict.get('symbols_mapping_initialized', False) 
@@ -622,9 +657,9 @@ class OrderManager:
                     # 对于 Binance 和 Bybit，如果有实际余额数据，允许继续
                     if connector_name in ["bybit", "binance"]:
                         # 检查是否有实际的余额数据
-                        actual_balance_exists = hasattr(connector, '_account_balances') and len(connector._account_balances) > 0
+                        actual_balance_exists = hasattr(connector, '_account_balances') and self._safe_check_balances(connector._account_balances)
                         if actual_balance_exists:
-                            balance_count = len(connector._account_balances)
+                            balance_count = self._safe_get_balance_count(connector._account_balances)
                             self._logger.warning(f"⚠️ [{connector_name.upper()} DEBUG] Account balance status flag not set, but balance data exists ({balance_count} assets). Continuing...")
                         else:
                             self._logger.warning(f"⚠️ [{connector_name.upper()} DEBUG] Account balance not loaded, but continuing anyway due to network issues")
