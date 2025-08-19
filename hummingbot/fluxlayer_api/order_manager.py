@@ -2245,7 +2245,7 @@ async def main():
     # 测试连接器诊断
     print("\n=== Testing Connector Diagnosis ===")
 
-    connector_name = "bybit"
+    connector_name = "binance"
     trading_pair = "BTC-USDT"
 
     diagnosis_result = await order_manager.diagnose_connector_state(
