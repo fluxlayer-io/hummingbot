@@ -142,6 +142,267 @@ class OrderManager:
             self._logger.error(f"Error initializing connector {connector_name}: {e}")
             return False
     
+    async def _validate_and_adjust_order_params(
+        self,
+        connector: Any,
+        connector_name: str,
+        trading_pair: str,
+        amount: float,
+        price: float = None,
+        order_type: str = "MARKET",
+        is_buy: bool = True
+    ) -> tuple:
+        """
+        验证并调整订单参数以符合交易所要求
+        
+        参数:
+            connector: 交易所连接器实例
+            connector_name: 交易所名称
+            trading_pair: 交易对
+            amount: 订单数量
+            price: 订单价格（可选）
+            order_type: 订单类型
+            is_buy: 是否买入订单
+            
+        返回:
+            tuple: (adjusted_amount, adjusted_price, validation_result)
+        """
+        try:
+            # 检查交易规则是否存在
+            if not hasattr(connector, '_trading_rules') or trading_pair not in connector._trading_rules:
+                self._logger.warning(f"⚠️ [VALIDATION] No trading rules found for {trading_pair} on {connector_name}, using defaults")
+                
+                # 对于缺失交易规则的情况，尝试基本的数量调整
+                if connector_name == "bybit":
+                    # Bybit 现货的基本精度要求
+                    if "BTC" in trading_pair:
+                        adjusted_amount = round(amount, 6)  # BTC 通常6位小数
+                    else:
+                        adjusted_amount = round(amount, 8)  # 其他币种8位小数
+                    
+                    adjusted_price = round(price, 2) if price else None
+                else:
+                    adjusted_amount = round(amount, 8)  # 通用8位小数
+                    adjusted_price = round(price, 8) if price else None
+                
+                return adjusted_amount, adjusted_price, {"success": True, "message": "Used default precision"}
+            
+            trading_rule = connector._trading_rules[trading_pair]
+            
+            if connector_name == "bybit":
+                self._logger.info(f"🔍 [VALIDATION] Trading rule for {trading_pair}:")
+                self._logger.info(f"🔍 [VALIDATION]   Min order size: {trading_rule.min_order_size}")
+                self._logger.info(f"🔍 [VALIDATION]   Max order size: {trading_rule.max_order_size}")
+                self._logger.info(f"🔍 [VALIDATION]   Min notional: {trading_rule.min_notional_size}")
+                self._logger.info(f"🔍 [VALIDATION]   Base increment: {trading_rule.min_base_amount_increment}")
+                self._logger.info(f"🔍 [VALIDATION]   Quote increment: {trading_rule.min_quote_amount_increment}")
+                self._logger.info(f"🔍 [VALIDATION]   Min price increment: {trading_rule.min_price_increment}")
+            
+            # 调整数量精度
+            amount_decimal = Decimal(str(amount))
+            if trading_rule.min_base_amount_increment:
+                # 根据最小增量调整数量
+                increment = trading_rule.min_base_amount_increment
+                adjusted_amount_decimal = (amount_decimal // increment) * increment
+            else:
+                # 使用默认6位小数精度
+                adjusted_amount_decimal = amount_decimal.quantize(Decimal('0.000001'))
+            
+            adjusted_amount = float(adjusted_amount_decimal)
+            
+            # 调整价格精度（如果有价格）
+            adjusted_price = price
+            if price is not None and trading_rule.min_price_increment:
+                price_decimal = Decimal(str(price))
+                price_increment = trading_rule.min_price_increment
+                adjusted_price_decimal = (price_decimal // price_increment) * price_increment
+                adjusted_price = float(adjusted_price_decimal)
+            elif price is not None:
+                # 使用默认价格精度
+                adjusted_price = round(price, 2)
+            
+            # 验证最小订单量
+            if adjusted_amount < float(trading_rule.min_order_size):
+                return amount, price, {
+                    "success": False,
+                    "error": f"Order amount {adjusted_amount} is below minimum order size {trading_rule.min_order_size} for {trading_pair}",
+                    "exchange": connector_name,
+                    "trading_pair": trading_pair,
+                    "amount": amount,
+                    "side": "BUY" if is_buy else "SELL",
+                    "min_order_size": float(trading_rule.min_order_size)
+                }
+            
+            # 验证最大订单量（如果有限制）
+            if trading_rule.max_order_size and adjusted_amount > float(trading_rule.max_order_size):
+                return amount, price, {
+                    "success": False,
+                    "error": f"Order amount {adjusted_amount} exceeds maximum order size {trading_rule.max_order_size} for {trading_pair}",
+                    "exchange": connector_name,
+                    "trading_pair": trading_pair,
+                    "amount": amount,
+                    "side": "BUY" if is_buy else "SELL",
+                    "max_order_size": float(trading_rule.max_order_size)
+                }
+            
+            # 验证最小名义价值（对于限价单）
+            if order_type in ["LIMIT", "LIMIT_MAKER"] and adjusted_price is not None:
+                notional_value = adjusted_amount * adjusted_price
+                min_notional = float(trading_rule.min_notional_size) if trading_rule.min_notional_size else 0
+                
+                if notional_value < min_notional:
+                    return amount, price, {
+                        "success": False,
+                        "error": f"Order notional value {notional_value} is below minimum notional size {min_notional} for {trading_pair}",
+                        "exchange": connector_name,
+                        "trading_pair": trading_pair,
+                        "amount": amount,
+                        "price": price,
+                        "side": "BUY" if is_buy else "SELL",
+                        "notional_value": notional_value,
+                        "min_notional": min_notional
+                    }
+            
+            if connector_name == "bybit":
+                self._logger.info(f"✅ [VALIDATION] Order parameters validated and adjusted:")
+                self._logger.info(f"✅ [VALIDATION]   Amount: {amount} -> {adjusted_amount}")
+                if adjusted_price is not None:
+                    self._logger.info(f"✅ [VALIDATION]   Price: {price} -> {adjusted_price}")
+            
+            return adjusted_amount, adjusted_price, {"success": True, "message": "Parameters validated and adjusted"}
+            
+        except Exception as e:
+            self._logger.error(f"❌ [VALIDATION] Error validating order parameters: {e}")
+            return amount, price, {
+                "success": False,
+                "error": f"Validation error: {str(e)}",
+                "exchange": connector_name,
+                "trading_pair": trading_pair,
+                "amount": amount,
+                "side": "BUY" if is_buy else "SELL"
+            }
+    
+    async def _ensure_connector_fully_initialized(self, connector: Any, connector_name: str, trading_pair: str):
+        """
+        确保连接器完全初始化，包括所有网络组件
+        
+        参数:
+            connector: 连接器实例
+            connector_name: 交易所名称
+            trading_pair: 主要交易对
+        """
+        self._logger.info(f"🔧 [INITIALIZATION] Ensuring full initialization for {connector_name}")
+        
+        # 第1阶段：等待基础组件初始化
+        max_wait_cycles = 20  # 最多等待40秒
+        for i in range(max_wait_cycles):
+            status_dict = connector.status_dict
+            
+            # 检查关键组件是否已就绪
+            account_balance_ready = status_dict.get('account_balance', False)
+            symbols_mapping_ready = status_dict.get('symbols_mapping_initialized', False) 
+            trading_rules_ready = status_dict.get('trading_rule_initialized', False)
+            
+            if connector_name == "bybit":
+                self._logger.info(f"🔧 [BYBIT INIT] Status check {i+1}/{max_wait_cycles}:")
+                self._logger.info(f"🔧 [BYBIT INIT]   Account balance: {account_balance_ready}")
+                self._logger.info(f"🔧 [BYBIT INIT]   Symbols mapping: {symbols_mapping_ready}")
+                self._logger.info(f"🔧 [BYBIT INIT]   Trading rules: {trading_rules_ready}")
+            
+            # 如果基础组件都准备好了，进入第2阶段
+            if account_balance_ready and symbols_mapping_ready and trading_rules_ready:
+                self._logger.info(f"✅ [INITIALIZATION] Basic components ready for {connector_name}")
+                break
+            
+            await asyncio.sleep(2)
+        
+        # 第2阶段：确保订单簿和用户流就绪
+        if connector_name == "bybit":
+            await self._ensure_bybit_order_book_ready(connector, trading_pair)
+            await self._ensure_bybit_user_stream_ready(connector)
+        
+        # 第3阶段：最终验证
+        final_status = connector.status_dict
+        if connector_name == "bybit":
+            self._logger.info(f"🔧 [BYBIT INIT] Final status: {final_status}")
+            
+            # 检查订单跟踪器
+            if hasattr(connector, '_order_tracker'):
+                self._logger.info(f"✅ [BYBIT INIT] Order tracker ready")
+            else:
+                self._logger.warning(f"⚠️ [BYBIT INIT] Order tracker not found")
+            
+            # 检查网络迭代器
+            if hasattr(connector, '_network_iterator') and connector._network_iterator:
+                self._logger.info(f"✅ [BYBIT INIT] Network iterator running")
+            else:
+                self._logger.warning(f"⚠️ [BYBIT INIT] Network iterator not running")
+    
+    async def _ensure_bybit_order_book_ready(self, connector: Any, trading_pair: str):
+        """
+        确保 Bybit 订单簿数据就绪
+        """
+        self._logger.info(f"🔧 [BYBIT ORDERBOOK] Ensuring order book ready for {trading_pair}")
+        
+        if not hasattr(connector, '_order_book_tracker') or not connector._order_book_tracker:
+            self._logger.warning(f"⚠️ [BYBIT ORDERBOOK] Order book tracker not found")
+            return
+        
+        ob_tracker = connector._order_book_tracker
+        
+        # 等待订单簿数据
+        for i in range(15):  # 最多等待30秒
+            try:
+                if trading_pair in ob_tracker.order_books:
+                    order_book = ob_tracker.order_books[trading_pair]
+                    bid_count = len(order_book.bid_entries())
+                    ask_count = len(order_book.ask_entries())
+                    
+                    if bid_count > 0 and ask_count > 0:
+                        self._logger.info(f"✅ [BYBIT ORDERBOOK] Order book ready: {bid_count} bids, {ask_count} asks")
+                        return
+                    else:
+                        self._logger.info(f"🔧 [BYBIT ORDERBOOK] Waiting for data... ({bid_count} bids, {ask_count} asks)")
+                else:
+                    self._logger.info(f"🔧 [BYBIT ORDERBOOK] Waiting for {trading_pair} order book...")
+                
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                self._logger.warning(f"⚠️ [BYBIT ORDERBOOK] Error checking order book: {e}")
+                break
+        
+        self._logger.warning(f"⚠️ [BYBIT ORDERBOOK] Order book not fully ready after waiting")
+    
+    async def _ensure_bybit_user_stream_ready(self, connector: Any):
+        """
+        确保 Bybit 用户数据流就绪
+        """
+        self._logger.info(f"🔧 [BYBIT USERSTREAM] Ensuring user stream ready")
+        
+        if not hasattr(connector, '_user_stream_tracker') or not connector._user_stream_tracker:
+            self._logger.warning(f"⚠️ [BYBIT USERSTREAM] User stream tracker not found")
+            return
+        
+        user_stream = connector._user_stream_tracker
+        
+        # 检查用户流状态
+        for i in range(10):  # 最多等待20秒
+            try:
+                if hasattr(user_stream, 'last_recv_time') and user_stream.last_recv_time > 0:
+                    self._logger.info(f"✅ [BYBIT USERSTREAM] User stream active (last recv: {user_stream.last_recv_time})")
+                    return
+                else:
+                    self._logger.info(f"🔧 [BYBIT USERSTREAM] Waiting for user stream activity...")
+                
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                self._logger.warning(f"⚠️ [BYBIT USERSTREAM] Error checking user stream: {e}")
+                break
+        
+        self._logger.warning(f"⚠️ [BYBIT USERSTREAM] User stream not fully active after waiting")
+    
     async def _create_connector_instance(self, connector_name: str, trading_pair: str, exchange_config: dict, required_params: dict):
         """
         创建连接器实例
@@ -618,41 +879,8 @@ class OrderManager:
                         import traceback
                         self._logger.error(f"❌ [BYBIT DEBUG] Stack trace: {traceback.format_exc()}")
                 
-                # 等待连接器完全初始化 - 增加更多等待时间和检查项目
-                max_wait_cycles = 15  # 最多等待30秒
-                for i in range(max_wait_cycles):
-                    status_dict = connector.status_dict
-                    
-                    # 检查关键组件是否已就绪
-                    account_balance_ready = status_dict.get('account_balance', False)
-                    symbols_mapping_ready = status_dict.get('symbols_mapping_initialized', False) 
-                    trading_rules_ready = status_dict.get('trading_rule_initialized', False)
-                    
-                    # 对于订单簿，我们先检查是否至少有一个交易对的订单簿数据
-                    order_books_ready = status_dict.get('order_books_initialized', False)
-                    if not order_books_ready and hasattr(connector, '_order_book_tracker'):
-                        # 检查是否至少有一个订单簿有数据
-                        try:
-                            for trading_pair in connector._trading_pairs or [trading_pair]:
-                                order_book = connector._order_book_tracker.order_books.get(trading_pair)
-                                if order_book and len(order_book.bid_entries()) > 0 and len(order_book.ask_entries()) > 0:
-                                    order_books_ready = True
-                                    self._logger.info(f"Order book data found for {trading_pair}")
-                                    break
-                        except Exception as e:
-                            self._logger.debug(f"Error checking order book data: {e}")
-                    
-                    # 记录当前状态
-                    self._logger.info(f"Connector {connector_name} status (attempt {i+1}/{max_wait_cycles}): "
-                                    f"balance={account_balance_ready}, symbols={symbols_mapping_ready}, "
-                                    f"rules={trading_rules_ready}, orderbooks={order_books_ready}")
-                    
-                    # 如果关键组件都准备好了，就继续
-                    if account_balance_ready and symbols_mapping_ready and trading_rules_ready:
-                        self._logger.info(f"Core components ready for {connector_name}")
-                        break
-                    
-                    await asyncio.sleep(2)
+                # 改进的连接器初始化等待逻辑
+                await self._ensure_connector_fully_initialized(connector, connector_name, trading_pair)
                 
                 # 最终状态检查
                 final_status = connector.status_dict
@@ -849,6 +1077,41 @@ class OrderManager:
                     "side": "BUY" if is_buy else "SELL"
                 }
             
+            # 获取并验证交易规则，调整数量精度
+            try:
+                adjusted_amount, adjusted_price, validation_result = await self._validate_and_adjust_order_params(
+                    connector=connector,
+                    connector_name=connector_name,
+                    trading_pair=trading_pair,
+                    amount=amount,
+                    price=price,
+                    order_type=order_type,
+                    is_buy=is_buy
+                )
+                
+                if not validation_result["success"]:
+                    return validation_result
+                
+                # 使用调整后的参数
+                amount = adjusted_amount
+                price = adjusted_price
+                
+                if connector_name == "bybit":
+                    self._logger.info(f"🔍 [BYBIT VALIDATION] Order parameters adjusted:")
+                    self._logger.info(f"🔍 [BYBIT VALIDATION]   Original amount: {amount} -> Adjusted: {adjusted_amount}")
+                    self._logger.info(f"🔍 [BYBIT VALIDATION]   Original price: {price} -> Adjusted: {adjusted_price}")
+                
+            except Exception as validation_error:
+                self._logger.error(f"❌ [VALIDATION] Order validation failed: {validation_error}")
+                return {
+                    "success": False,
+                    "error": f"Order validation failed: {str(validation_error)}",
+                    "exchange": connector_name,
+                    "trading_pair": trading_pair,
+                    "amount": amount,
+                    "side": "BUY" if is_buy else "SELL"
+                }
+            
             # 价格验证和处理
             if order_type == "MARKET":
                 # 市价单不需要预先设置价格，让交易所根据当前市场价格执行
@@ -921,8 +1184,41 @@ class OrderManager:
                 order_price = Decimal(str(price)) if price is not None else None
                 
             try:
+                # 🔍 DEBUG: 下单前的详细信息
+                if connector_name == "bybit":
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG] Preparing order submission:")
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Trading pair: {trading_pair}")
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Amount: {amount} (type: {type(amount)})")
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Decimal amount: {Decimal(str(amount))}")
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Order type: {order_type} -> {order_type_map[order_type]}")
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Price: {order_price} (type: {type(order_price)})")
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Is buy: {is_buy}")
+                    
+                    # 检查连接器状态
+                    connector_status = connector.status_dict
+                    self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Connector status: {connector_status}")
+                    
+                    # 检查交易规则
+                    if hasattr(connector, '_trading_rules') and trading_pair in connector._trading_rules:
+                        trading_rule = connector._trading_rules[trading_pair]
+                        self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Trading rule found:")
+                        self._logger.info(f"🔍 [BYBIT ORDER DEBUG]     Min order size: {trading_rule.min_order_size}")
+                        self._logger.info(f"🔍 [BYBIT ORDER DEBUG]     Min notional: {trading_rule.min_notional_size}")
+                        self._logger.info(f"🔍 [BYBIT ORDER DEBUG]     Base precision: {trading_rule.min_base_amount_increment}")
+                        self._logger.info(f"🔍 [BYBIT ORDER DEBUG]     Quote precision: {trading_rule.min_quote_amount_increment}")
+                    else:
+                        self._logger.warning(f"⚠️ [BYBIT ORDER DEBUG] No trading rule found for {trading_pair}")
+                    
+                    # 检查订单跟踪器状态
+                    if hasattr(connector, '_order_tracker'):
+                        active_orders_count = len(connector._order_tracker.active_orders)
+                        self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Active orders count: {active_orders_count}")
+                    else:
+                        self._logger.warning(f"⚠️ [BYBIT ORDER DEBUG] No order tracker found")
+                
                 # 执行下单
                 if is_buy:
+                    self._logger.info(f"🔧 [ORDER EXECUTION] Calling connector.buy() for {connector_name}")
                     order_id = connector.buy(
                         trading_pair=trading_pair,
                         amount=Decimal(str(amount)),
@@ -931,6 +1227,7 @@ class OrderManager:
                         **kwargs
                     )
                 else:
+                    self._logger.info(f"🔧 [ORDER EXECUTION] Calling connector.sell() for {connector_name}")
                     order_id = connector.sell(
                         trading_pair=trading_pair,
                         amount=Decimal(str(amount)),
@@ -939,7 +1236,28 @@ class OrderManager:
                         **kwargs
                     )
                 
-                self._logger.info(f"Order submitted to {connector_name} with local ID: {order_id}")
+                self._logger.info(f"✅ [ORDER EXECUTION] Order submitted to {connector_name} with local ID: {order_id}")
+                
+                # 🔍 DEBUG: 下单后立即检查订单状态
+                if connector_name == "bybit":
+                    try:
+                        # 等待一小段时间让订单进入跟踪器
+                        await asyncio.sleep(0.5)
+                        
+                        if hasattr(connector, '_order_tracker') and order_id in connector._order_tracker.active_orders:
+                            order = connector._order_tracker.active_orders[order_id]
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG] Order found in tracker:")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Order ID: {order_id}")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Exchange order ID: {getattr(order, 'exchange_order_id', 'None')}")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Current state: {getattr(order, 'current_state', 'Unknown')}")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Amount: {getattr(order, 'amount', 'Unknown')}")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Price: {getattr(order, 'price', 'Unknown')}")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Trading pair: {getattr(order, 'trading_pair', 'Unknown')}")
+                            self._logger.info(f"🔍 [BYBIT ORDER DEBUG]   Creation time: {getattr(order, 'creation_timestamp', 'Unknown')}")
+                        else:
+                            self._logger.warning(f"⚠️ [BYBIT ORDER DEBUG] Order {order_id} not found in tracker immediately after submission")
+                    except Exception as debug_error:
+                        self._logger.error(f"❌ [BYBIT ORDER DEBUG] Error checking order status: {debug_error}")
                 
                 # 立即返回成功结果，不等待订单状态
                 return {
@@ -974,6 +1292,129 @@ class OrderManager:
                 "trading_pair": trading_pair,
                 "amount": amount,
                 "side": "BUY" if is_buy else "SELL"
+            }
+
+    async def monitor_order_progress(
+        self,
+        connector_name: str,
+        order_id: str,
+        trading_pair: str,
+        monitor_duration: int = 30
+    ) -> Dict[str, Any]:
+        """
+        监控订单进度，实时跟踪订单状态变化（用于调试）
+        
+        参数:
+            connector_name (str): 交易所名称
+            order_id (str): 订单ID
+            trading_pair (str): 交易对
+            monitor_duration (int): 监控持续时间（秒）
+            
+        返回:
+            dict: 订单进度监控结果
+        """
+        try:
+            if not validate_exchange_support(connector_name):
+                return {
+                    "success": False,
+                    "error": f"Unsupported exchange: {connector_name}",
+                    "order_id": order_id
+                }
+            
+            # 获取连接器实例
+            try:
+                connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=False)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to get connector for {connector_name}: {str(e)}",
+                    "order_id": order_id,
+                    "exchange": connector_name
+                }
+            
+            self._logger.info(f"🔍 [ORDER MONITOR] Starting {monitor_duration}s monitoring for order {order_id}")
+            
+            progress_log = []
+            start_time = time.time()
+            last_state = None
+            
+            while time.time() - start_time < monitor_duration:
+                try:
+                    # 检查订单是否存在于连接器的订单跟踪器中
+                    order_tracker = connector._order_tracker
+                    
+                    if hasattr(order_tracker, 'active_orders') and order_id in order_tracker.active_orders:
+                        order = order_tracker.active_orders[order_id]
+                        current_state = str(getattr(order, 'current_state', 'UNKNOWN'))
+                        exchange_order_id = getattr(order, 'exchange_order_id', None)
+                        
+                        # 记录状态变化
+                        if current_state != last_state:
+                            timestamp = time.time()
+                            progress_entry = {
+                                "timestamp": timestamp,
+                                "elapsed": round(timestamp - start_time, 2),
+                                "state": current_state,
+                                "exchange_order_id": exchange_order_id,
+                                "filled_amount": float(getattr(order, 'executed_amount_base', 0)),
+                                "remaining_amount": float(getattr(order, 'amount', 0) - getattr(order, 'executed_amount_base', 0)),
+                                "average_price": float(getattr(order, 'average_executed_price', 0)) if getattr(order, 'average_executed_price', 0) else None
+                            }
+                            progress_log.append(progress_entry)
+                            
+                            self._logger.info(f"🔍 [ORDER MONITOR] State change: {last_state} -> {current_state} (t+{progress_entry['elapsed']}s)")
+                            if exchange_order_id:
+                                self._logger.info(f"🔍 [ORDER MONITOR]   Exchange order ID: {exchange_order_id}")
+                            
+                            last_state = current_state
+                            
+                            # 如果订单达到最终状态，停止监控
+                            if any(final_state in current_state.upper() for final_state in ['FILLED', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED']):
+                                self._logger.info(f"🔍 [ORDER MONITOR] Order reached final state: {current_state}")
+                                break
+                    elif hasattr(order_tracker, 'all_orders') and order_id in order_tracker.all_orders:
+                        # 检查历史订单
+                        order = order_tracker.all_orders[order_id]
+                        current_state = str(getattr(order, 'current_state', 'UNKNOWN'))
+                        self._logger.info(f"🔍 [ORDER MONITOR] Order found in historical orders: {current_state}")
+                        break
+                    else:
+                        # 订单未找到
+                        if last_state is None:
+                            self._logger.warning(f"⚠️ [ORDER MONITOR] Order {order_id} not found in tracker")
+                            last_state = "NOT_FOUND"
+                    
+                    await asyncio.sleep(1)  # 每秒检查一次
+                    
+                except Exception as monitor_error:
+                    self._logger.error(f"❌ [ORDER MONITOR] Monitoring error: {monitor_error}")
+                    progress_log.append({
+                        "timestamp": time.time(),
+                        "elapsed": round(time.time() - start_time, 2),
+                        "error": str(monitor_error)
+                    })
+                    break
+            
+            total_duration = round(time.time() - start_time, 2)
+            self._logger.info(f"🔍 [ORDER MONITOR] Monitoring completed after {total_duration}s")
+            
+            return {
+                "success": True,
+                "order_id": order_id,
+                "exchange": connector_name,
+                "trading_pair": trading_pair,
+                "monitor_duration": total_duration,
+                "progress_log": progress_log,
+                "final_state": last_state
+            }
+            
+        except Exception as e:
+            self._logger.error(f"Error monitoring order progress for {connector_name}: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "order_id": order_id,
+                "exchange": connector_name
             }
 
     async def get_order_status(
@@ -1175,6 +1616,232 @@ class OrderManager:
             list: 支持的交易所名称列表
         """
         return get_supported_exchanges()
+    
+    async def diagnose_connector_state(self, connector_name: str, trading_pair: str = "BTC-USDT") -> Dict[str, Any]:
+        """
+        诊断连接器状态，用于调试连接器问题
+        
+        参数:
+            connector_name (str): 交易所名称
+            trading_pair (str): 用于测试的交易对
+            
+        返回:
+            dict: 详细的诊断报告
+        """
+        try:
+            if not validate_exchange_support(connector_name):
+                return {
+                    "success": False,
+                    "error": f"Unsupported exchange: {connector_name}"
+                }
+            
+            self._logger.info(f"🔍 [DIAGNOSIS] Starting connector diagnosis for {connector_name}")
+            
+            diagnosis_report = {
+                "exchange": connector_name,
+                "trading_pair": trading_pair,
+                "timestamp": time.time(),
+                "diagnosis_sections": {}
+            }
+            
+            # 1. 基础连接器检查
+            try:
+                connector = await self._get_or_create_connector(connector_name, trading_pair, wait_for_orderbook=False)
+                diagnosis_report["diagnosis_sections"]["connector_creation"] = {
+                    "success": True,
+                    "message": "Connector created successfully"
+                }
+            except Exception as e:
+                diagnosis_report["diagnosis_sections"]["connector_creation"] = {
+                    "success": False,
+                    "error": str(e)
+                }
+                return diagnosis_report
+            
+            # 2. 基础组件检查
+            status_dict = connector.status_dict
+            diagnosis_report["diagnosis_sections"]["basic_status"] = {
+                "status_dict": status_dict,
+                "components": {
+                    "account_balance": status_dict.get('account_balance', False),
+                    "symbols_mapping": status_dict.get('symbols_mapping_initialized', False),
+                    "trading_rules": status_dict.get('trading_rule_initialized', False),
+                    "order_books": status_dict.get('order_books_initialized', False)
+                }
+            }
+            
+            # 3. 网络组件检查
+            network_diagnosis = {}
+            
+            # 检查 web assistants factory
+            if hasattr(connector, '_web_assistants_factory'):
+                network_diagnosis["web_assistants_factory"] = {
+                    "exists": True,
+                    "initialized": connector._web_assistants_factory is not None
+                }
+            else:
+                network_diagnosis["web_assistants_factory"] = {"exists": False}
+            
+            # 检查认证
+            if hasattr(connector, '_auth'):
+                network_diagnosis["authentication"] = {
+                    "exists": True,
+                    "initialized": connector._auth is not None
+                }
+            else:
+                network_diagnosis["authentication"] = {"exists": False}
+            
+            # 检查订单簿跟踪器
+            if hasattr(connector, '_order_book_tracker'):
+                ob_tracker = connector._order_book_tracker
+                if ob_tracker:
+                    order_books_count = len(ob_tracker.order_books)
+                    target_pair_ready = False
+                    target_pair_data = {}
+                    
+                    if trading_pair in ob_tracker.order_books:
+                        order_book = ob_tracker.order_books[trading_pair]
+                        bid_count = len(order_book.bid_entries())
+                        ask_count = len(order_book.ask_entries())
+                        target_pair_ready = bid_count > 0 and ask_count > 0
+                        target_pair_data = {
+                            "bid_count": bid_count,
+                            "ask_count": ask_count
+                        }
+                    
+                    network_diagnosis["order_book_tracker"] = {
+                        "exists": True,
+                        "initialized": True,
+                        "order_books_count": order_books_count,
+                        "target_pair_ready": target_pair_ready,
+                        "target_pair_data": target_pair_data
+                    }
+                else:
+                    network_diagnosis["order_book_tracker"] = {
+                        "exists": True,
+                        "initialized": False
+                    }
+            else:
+                network_diagnosis["order_book_tracker"] = {"exists": False}
+            
+            # 检查用户流跟踪器
+            if hasattr(connector, '_user_stream_tracker'):
+                user_stream = connector._user_stream_tracker
+                if user_stream:
+                    last_recv_time = getattr(user_stream, 'last_recv_time', 0)
+                    network_diagnosis["user_stream_tracker"] = {
+                        "exists": True,
+                        "initialized": True,
+                        "last_recv_time": last_recv_time,
+                        "active": last_recv_time > 0
+                    }
+                else:
+                    network_diagnosis["user_stream_tracker"] = {
+                        "exists": True,
+                        "initialized": False
+                    }
+            else:
+                network_diagnosis["user_stream_tracker"] = {"exists": False}
+            
+            # 检查订单跟踪器
+            if hasattr(connector, '_order_tracker'):
+                order_tracker = connector._order_tracker
+                active_orders_count = len(order_tracker.active_orders) if hasattr(order_tracker, 'active_orders') else 0
+                all_orders_count = len(order_tracker.all_orders) if hasattr(order_tracker, 'all_orders') else 0
+                
+                network_diagnosis["order_tracker"] = {
+                    "exists": True,
+                    "active_orders_count": active_orders_count,
+                    "all_orders_count": all_orders_count
+                }
+            else:
+                network_diagnosis["order_tracker"] = {"exists": False}
+            
+            diagnosis_report["diagnosis_sections"]["network_components"] = network_diagnosis
+            
+            # 4. 交易规则检查
+            trading_rules_diagnosis = {}
+            if hasattr(connector, '_trading_rules') and trading_pair in connector._trading_rules:
+                trading_rule = connector._trading_rules[trading_pair]
+                trading_rules_diagnosis = {
+                    "exists": True,
+                    "min_order_size": float(trading_rule.min_order_size),
+                    "max_order_size": float(trading_rule.max_order_size) if trading_rule.max_order_size else None,
+                    "min_notional_size": float(trading_rule.min_notional_size) if trading_rule.min_notional_size else None,
+                    "min_base_amount_increment": float(trading_rule.min_base_amount_increment) if trading_rule.min_base_amount_increment else None,
+                    "min_price_increment": float(trading_rule.min_price_increment) if trading_rule.min_price_increment else None
+                }
+            else:
+                trading_rules_diagnosis = {"exists": False}
+            
+            diagnosis_report["diagnosis_sections"]["trading_rules"] = trading_rules_diagnosis
+            
+            # 5. 余额检查
+            balance_diagnosis = {}
+            if hasattr(connector, '_account_balances'):
+                balances = connector._account_balances
+                balance_count = len(balances)
+                sample_balances = {}
+                
+                # 获取前5个有余额的资产
+                positive_balances = {k: float(v) for k, v in balances.items() if float(v) > 0}
+                sample_balances = dict(list(positive_balances.items())[:5])
+                
+                balance_diagnosis = {
+                    "total_assets": balance_count,
+                    "positive_balance_count": len(positive_balances),
+                    "sample_balances": sample_balances
+                }
+            else:
+                balance_diagnosis = {"error": "No balance data available"}
+            
+            diagnosis_report["diagnosis_sections"]["balances"] = balance_diagnosis
+            
+            # 6. 总体健康评分
+            health_score = 0
+            max_score = 7
+            
+            # 基础组件评分
+            if diagnosis_report["diagnosis_sections"]["basic_status"]["components"]["account_balance"]:
+                health_score += 1
+            if diagnosis_report["diagnosis_sections"]["basic_status"]["components"]["trading_rules"]:
+                health_score += 1
+            
+            # 网络组件评分
+            if network_diagnosis.get("web_assistants_factory", {}).get("initialized", False):
+                health_score += 1
+            if network_diagnosis.get("authentication", {}).get("initialized", False):
+                health_score += 1
+            if network_diagnosis.get("order_book_tracker", {}).get("initialized", False):
+                health_score += 1
+            if network_diagnosis.get("user_stream_tracker", {}).get("active", False):
+                health_score += 1
+            if network_diagnosis.get("order_tracker", {}).get("exists", False):
+                health_score += 1
+            
+            health_percentage = round((health_score / max_score) * 100, 1)
+            
+            diagnosis_report["health_score"] = {
+                "score": health_score,
+                "max_score": max_score,
+                "percentage": health_percentage,
+                "status": "healthy" if health_percentage >= 85 else "warning" if health_percentage >= 60 else "critical"
+            }
+            
+            self._logger.info(f"🔍 [DIAGNOSIS] Diagnosis completed for {connector_name}: {health_percentage}% healthy")
+            
+            return {
+                "success": True,
+                "diagnosis": diagnosis_report
+            }
+            
+        except Exception as e:
+            self._logger.error(f"Error diagnosing connector {connector_name}: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "exchange": connector_name
+            }
 
     def get_exchange_info(self, connector_name: str) -> dict:
         """
@@ -1222,11 +1889,22 @@ async def main():
     supported_exchanges = order_manager.get_supported_exchanges()
     print(f"Supported exchanges: {supported_exchanges}")
     
+    # 测试连接器诊断
+    print("\n=== Testing Connector Diagnosis ===")
+    
+    connector_name = "bybit"
+    trading_pair = "BTC-USDT"
+    
+    diagnosis_result = await order_manager.diagnose_connector_state(
+        connector_name=connector_name,
+        trading_pair=trading_pair
+    )
+    
+    print(f"Connector diagnosis result: {diagnosis_result}")
+    
     # 测试下单功能
     print("\n=== Testing Order Placement ===")
 
-    connector_name = "bybit"
-    trading_pair = "BTC-USDT"
     amount = 0.0000546
     # amount = 0.00086
 
@@ -1242,13 +1920,25 @@ async def main():
     
     print(f"Order placement result: {result}")
     
-    # 如果下单成功，测试查询订单状态
+    # 如果下单成功，测试订单监控和状态查询
     if result.get("success") and result.get("order_id"):
-        print(f"\n=== Testing Order Status Query ===")
+        print(f"\n=== Testing Order Progress Monitoring ===")
         
         order_id = result["order_id"]
         exchange = result["exchange"]
         trading_pair = result["trading_pair"]
+        
+        # 监控订单进度（30秒）
+        monitor_result = await order_manager.monitor_order_progress(
+            connector_name=exchange,
+            order_id=order_id,
+            trading_pair=trading_pair,
+            monitor_duration=30
+        )
+        
+        print(f"Order monitoring result: {monitor_result}")
+        
+        print(f"\n=== Testing Order Status Query ===")
         
         # 查询订单状态
         status_result = await order_manager.get_order_status(
