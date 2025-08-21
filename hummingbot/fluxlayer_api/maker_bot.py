@@ -1369,11 +1369,11 @@ class ArbitrageExecutor:
             try:
                 # 1. 创建报价记录
                 quota_result = mpc_client.create_quota(
-                    solver_id=1,  # 硬编码为 1
+                    solver_id=1,
                     source_amount=str(i_amount),
-                    source_price="45000.0",  # 示例价格，可以根据需要调整
+                    source_price="000",  # 示例价格，可以根据需要调整
                     target_amount=str(o_amount),
-                    target_price="46000.0"   # 示例价格，可以根据需要调整
+                    target_price="000"   # 示例价格，可以根据需要调整
                 )
                 
                 if not quota_result:

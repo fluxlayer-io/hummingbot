@@ -25,34 +25,34 @@ from hummingbot.connector.exchange.hyperliquid.hyperliquid_exchange import Hyper
 
 # 交易所配置
 EXCHANGES = {
-    "binance": {
-        "exchange_class": BinanceExchange,
-        "data_source_class": BinanceAPIOrderBookDataSource,
-        "constants": BINANCE_CONSTANTS,
-        "required_params": {
-            "binance_api_key": "",
-            "binance_api_secret": ""
-        }
-    },
-    "bybit": {
-        "exchange_class": BybitExchange,
-        "data_source_class": BybitAPIOrderBookDataSource,
-        "constants": BYBIT_CONSTANTS,
-        "required_params": {
-            "bybit_api_key": "",
-            "bybit_api_secret": ""
-        }
-    },
-    "okx": {
-        "exchange_class": OkxExchange,
-        "data_source_class": OkxAPIOrderBookDataSource,
-        "constants": OKX_CONSTANTS,
-        "required_params": {
-            "okx_api_key": "",
-            "okx_secret_key": "",
-            "okx_passphrase": "",
-        }
-    },
+    # "binance": {
+    #     "exchange_class": BinanceExchange,
+    #     "data_source_class": BinanceAPIOrderBookDataSource,
+    #     "constants": BINANCE_CONSTANTS,
+    #     "required_params": {
+    #         "binance_api_key": "",
+    #         "binance_api_secret": ""
+    #     }
+    # },
+    # "bybit": {
+    #     "exchange_class": BybitExchange,
+    #     "data_source_class": BybitAPIOrderBookDataSource,
+    #     "constants": BYBIT_CONSTANTS,
+    #     "required_params": {
+    #         "bybit_api_key": "",
+    #         "bybit_api_secret": ""
+    #     }
+    # },
+    # "okx": {
+    #     "exchange_class": OkxExchange,
+    #     "data_source_class": OkxAPIOrderBookDataSource,
+    #     "constants": OKX_CONSTANTS,
+    #     "required_params": {
+    #         "okx_api_key": "",
+    #         "okx_secret_key": "",
+    #         "okx_passphrase": "",
+    #     }
+    # },
     "hyperliquid": {
         "exchange_class": HyperliquidExchange,
         "data_source_class": HyperliquidAPIOrderBookDataSource,
@@ -89,17 +89,17 @@ def load_api_keys_from_env():
     """从环境变量加载API密钥到交易所配置中"""
     try:
         # 更新 Binance API 密钥
-        EXCHANGES["binance"]["required_params"]["binance_api_key"] = os.getenv("BINANCE_API_KEY", "")
-        EXCHANGES["binance"]["required_params"]["binance_api_secret"] = os.getenv("BINANCE_API_SECRET", "")
-
-        # 更新 Bybit API 密钥
-        EXCHANGES["bybit"]["required_params"]["bybit_api_key"] = os.getenv("BYBIT_API_KEY", "")
-        EXCHANGES["bybit"]["required_params"]["bybit_api_secret"] = os.getenv("BYBIT_API_SECRET", "")
-        
-        # 更新 OKX API 密钥
-        EXCHANGES["okx"]["required_params"]["okx_api_key"] = os.getenv("OKX_API_KEY", "")
-        EXCHANGES["okx"]["required_params"]["okx_secret_key"] = os.getenv("OKX_SECRET_KEY", "")
-        EXCHANGES["okx"]["required_params"]["okx_passphrase"] = os.getenv("OKX_PASSPHRASE", "")
+        # EXCHANGES["binance"]["required_params"]["binance_api_key"] = os.getenv("BINANCE_API_KEY", "")
+        # EXCHANGES["binance"]["required_params"]["binance_api_secret"] = os.getenv("BINANCE_API_SECRET", "")
+        #
+        # # 更新 Bybit API 密钥
+        # EXCHANGES["bybit"]["required_params"]["bybit_api_key"] = os.getenv("BYBIT_API_KEY", "")
+        # EXCHANGES["bybit"]["required_params"]["bybit_api_secret"] = os.getenv("BYBIT_API_SECRET", "")
+        #
+        # # 更新 OKX API 密钥
+        # EXCHANGES["okx"]["required_params"]["okx_api_key"] = os.getenv("OKX_API_KEY", "")
+        # EXCHANGES["okx"]["required_params"]["okx_secret_key"] = os.getenv("OKX_SECRET_KEY", "")
+        # EXCHANGES["okx"]["required_params"]["okx_passphrase"] = os.getenv("OKX_PASSPHRASE", "")
         
         # 更新 Hyperliquid API 密钥
         EXCHANGES["hyperliquid"]["required_params"]["hyperliquid_api_key"] = os.getenv("HYPERLIQUID_API_KEY", "")

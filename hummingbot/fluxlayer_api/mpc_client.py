@@ -50,7 +50,8 @@ class MPCClient:
         url = f"{self.api_host}{path}"
         response = requests.post(url, json=json_body)
         response.raise_for_status()
-        return response.json().get("data")
+        result = response.json()
+        return result.get("data")
 
     def check_mpc_exists(self, src_addr: str) -> bool:
         return self._get(f"/mpc-wallet/{src_addr}")
@@ -134,7 +135,8 @@ class MPCClient:
             "targetAmount": target_amount,
             "targetPrice": target_price
         }
-        return self._post("/quota", payload)
+        result = self._post("/quota", payload)
+        return result
 
     def get_quota(self, quota_id: int) -> Any:
         """获取报价信息"""

@@ -2245,8 +2245,8 @@ async def main():
     # 测试连接器诊断
     print("\n=== Testing Connector Diagnosis ===")
 
-    connector_name = "binance"
-    trading_pair = "BTC-USDT"
+    connector_name = "hyperliquid"
+    trading_pair = "UBTC-USDC"
 
     diagnosis_result = await order_manager.diagnose_connector_state(
         connector_name=connector_name,
@@ -2258,8 +2258,8 @@ async def main():
     # 测试下单功能
     print("\n=== Testing Order Placement ===")
 
-    amount = 0.0000546
-    # amount = 0.00086
+    # amount = 0.0000546
+    amount = 0.00009
 
 
     # 示例：市价买单
@@ -2267,7 +2267,7 @@ async def main():
         connector_name=connector_name,
         trading_pair=trading_pair,
         amount=amount,
-        is_buy=True,
+        is_buy=False,
         order_type="MARKET"
     )
 

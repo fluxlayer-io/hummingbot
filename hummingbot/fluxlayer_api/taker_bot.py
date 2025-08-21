@@ -1246,13 +1246,6 @@ class ArbitrageExecutor:
                         if not quota_info:
                             logger.warning(f"Failed to get quota info for quota_id {order.quota_id}")
                             continue
-                        
-                        # 检查 solver_id 是否为自己
-                        # if quota_info.get('solver_id') != 1:
-                        #     logger.info(f"Quota {order.quota_id} belongs to solver {quota_info.get('solver_id')}, not mine (1)")
-                        #     continue
-
-                        # logger.info(f"Processing my own order {order.order_id} with quota_id {order.quota_id}")
 
                         # 通过 quota_id 查找对应的 CEX connector
                         target_cex_id = mpc_client.get_cex_connector_by_quota(order.quota_id)
@@ -1377,13 +1370,27 @@ class ArbitrageExecutor:
             # 任务1: CEX 下单
             from hummingbot.fluxlayer_api.order_manager import get_order_manager
             order_manager = get_order_manager()
-            
+            o_token = order.o_token
+            i_token = order.i_token
+            if order.o_token != order.target_chain:
+                o_token = order.o_token.split("_")[1]
+            if i_token != order.source_chain:
+                i_token = order.i_token.split("_")[1]
+            trading_pair = ""
+            if o_token == "BTC":
+                trading_pair = f"{o_token}-{i_token}"
+            else:
+                trading_pair = f"{i_token}-{o_token}"
+
+            if target_cex_id == "hyperliquid":
+                trading_pair = f"U{trading_pair}"
+
             cex_order_task = asyncio.create_task(
                 order_manager.place_order(
                     connector_name=target_cex_id,
-                    trading_pair=f"{order.o_token}-{order.i_token}",
-                    amount=float(order.oamount),
-                    is_buy=False,  # 卖出获得的代币
+                    trading_pair=trading_pair,
+                    amount=float(order.iamount),
+                    is_buy=True,
                     order_type="MARKET"
                 )
             )
