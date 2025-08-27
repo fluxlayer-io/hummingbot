@@ -1368,30 +1368,30 @@ class ArbitrageExecutor:
                 
             # 创建两个并行任务
             # 任务1: CEX 下单
-            from hummingbot.fluxlayer_api.order_manager import get_order_manager
-            order_manager = get_order_manager()
+            from hummingbot.fluxlayer_api.order_manager import OrderManager
+            order_manager = OrderManager()
             o_token = order.o_token
             i_token = order.i_token
             if order.o_token != order.target_chain:
                 o_token = order.o_token.split("_")[1]
             if i_token != order.source_chain:
                 i_token = order.i_token.split("_")[1]
-            trading_pair = ""
             if o_token == "BTC":
                 trading_pair = f"{o_token}-{i_token}"
+                btc_amount = order.oamount
+                is_buy = True
             else:
                 trading_pair = f"{i_token}-{o_token}"
+                btc_amount = order.iamount
+                is_buy = False
 
-            if target_cex_id == "hyperliquid":
-                trading_pair = f"U{trading_pair}"
 
             cex_order_task = asyncio.create_task(
                 order_manager.place_order(
                     connector_name=target_cex_id,
                     trading_pair=trading_pair,
-                    amount=float(order.iamount),
-                    is_buy=True,
-                    order_type="MARKET"
+                    amount=btc_amount,
+                    is_buy=is_buy
                 )
             )
             
