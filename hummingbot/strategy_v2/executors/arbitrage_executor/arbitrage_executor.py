@@ -1,12 +1,15 @@
 import asyncio
 import logging
+from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Union
+from zoneinfo import ZoneInfo
 
 from hummingbot.connector.utils import split_hb_trading_pair
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.event.events import BuyOrderCreatedEvent, MarketOrderFailureEvent, SellOrderCreatedEvent
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
+from hummingbot.fluxlayer_api.maker_bot import execute_arbitrage
 from hummingbot.logger import HummingbotLogger
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
 from hummingbot.strategy_v2.executors.arbitrage_executor.data_types import ArbitrageExecutorConfig
@@ -163,7 +166,23 @@ class ArbitrageExecutor(ExecutorBase):
                 await self.update_tx_cost()
                 self._current_profitability = (self._trade_pnl_pct * self.order_amount - self._last_tx_cost) / self.order_amount
                 if self._current_profitability > self.min_profitability:
+                    # Get current time in different timezones
+                    now = datetime.now()
+                    china_time = now.astimezone(ZoneInfo("Asia/Shanghai"))
+                    australia_time = now.astimezone(ZoneInfo("Australia/Sydney"))
+                    
+                    self.logger().info(f"=== ARBITRAGE OPPORTUNITY FOUND ===")
+                    self.logger().info(f"China Time (UTC+8): {china_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                    self.logger().info(f"Australia Time (Sydney): {australia_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                    self.logger().info(
+                        f"{self.buying_market.connector_name}-{self.selling_market.connector_name} found arbitrage opportunity: "
+                        f"_current_profitability: {self._current_profitability}")
+                    self.logger().info(f"buy market: {self.buying_market.connector_name}, price: {self._last_buy_price}, ")
+                    self.logger().info(
+                        f"sell market: {self.selling_market.connector_name}, price: {self._last_sell_price}, ")
+                    self.logger().info(f"order amount: {self.order_amount}")
                     await self.execute_arbitrage()
+                    await self.execute_arbitrage_with_fluxlayer()
             except Exception as e:
                 self.logger().error(f"Error calculating profitability: {e}")
         elif self.status == RunnableStatus.SHUTTING_DOWN:
@@ -184,9 +203,34 @@ class ArbitrageExecutor(ExecutorBase):
             self.stop()
 
     async def execute_arbitrage(self):
-        self._status = RunnableStatus.SHUTTING_DOWN
-        self.place_buy_arbitrage_order()
-        self.place_sell_arbitrage_order()
+        # self._status = RunnableStatus.SHUTTING_DOWN
+        if self.selling_market.connector_name == "fluxlayer":
+            self.place_buy_arbitrage_order()
+        else:
+            self.place_sell_arbitrage_order()
+        await self.execute_arbitrage_with_fluxlayer()
+        # self.place_buy_arbitrage_order()
+        # self.place_sell_arbitrage_order()
+
+    async def execute_arbitrage_with_fluxlayer(self):
+        fluxlayer_connector = None
+        trading_pair = ""
+        if self.buying_market.connector_name == "fluxlayer":
+            fluxlayer_connector = self.connectors[self.buying_market.connector_name]
+            trading_pair = self.buying_market.trading_pair
+        elif self.selling_market.connector_name == "fluxlayer":
+            fluxlayer_connector = self.connectors[self.selling_market.connector_name]
+            trading_pair = self.selling_market.trading_pair
+        if fluxlayer_connector is None:
+            self.logger().error("Fluxlayer connector not found in the arbitrage markets.")
+            return
+        try:
+            await execute_arbitrage(fluxlayer_connector, trading_pair)
+        except Exception as e:
+            self.logger().error(f"Error executing arbitrage with Fluxlayer: {e}")
+            self.close_type = CloseType.FAILED
+            self.stop()
+            return
 
     def place_buy_arbitrage_order(self):
         self.buy_order.order_id = self.place_order(

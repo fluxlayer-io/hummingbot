@@ -58,6 +58,7 @@ ENV COMMIT_BRANCH=${BRANCH}
 ENV BUILD_DATE=${DATE}
 
 ENV INSTALLATION_TYPE=docker
+ENV PYTHONPATH=/home/hummingbot
 
 # Install system dependencies
 RUN apt-get update && \
@@ -84,6 +85,4 @@ RUN conda run -n hummingbot pip install \
     solana==0.15.0 \
     solders
 
-# Set the default command to run when starting the container
-
-CMD conda activate hummingbot && ./bin/hummingbot_quickstart.py 2>> ./logs/errors.log
+CMD ["/bin/bash", "-c", "source /opt/conda/etc/profile.d/conda.sh && conda activate hummingbot && python -u ./hummingbot/fluxlayer_api/best_rfq_server.py"]

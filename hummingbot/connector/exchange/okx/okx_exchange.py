@@ -177,11 +177,25 @@ class OkxExchange(ExchangePyBase):
             self.logger().exception("There was an error requesting exchange info.")
 
     def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
+        from pprint import pformat  # 用于更清晰地打印数据结构
         mapping = bidict()
-        for symbol_data in filter(okx_utils.is_exchange_information_valid, exchange_info["data"]):
-            mapping[symbol_data["instId"]] = combine_to_hb_trading_pair(base=symbol_data["baseCcy"],
-                                                                        quote=symbol_data["quoteCcy"])
-        self._set_trading_pair_symbol_map(mapping)
+        try:
+            for symbol_data in filter(okx_utils.is_exchange_information_valid, exchange_info["data"]):
+                try:
+                    inst_id = symbol_data["instId"]
+                    base = symbol_data["baseCcy"]
+                    quote = symbol_data["quoteCcy"]
+                    hb_pair = combine_to_hb_trading_pair(base=base, quote=quote)
+                    mapping[inst_id] = hb_pair
+                except Exception as inner_e:
+                    self.logger().error(
+                        "Failed to process symbol data: %s\nError: %s",
+                        pformat(symbol_data),
+                        str(inner_e)
+                    )
+            self._set_trading_pair_symbol_map(mapping)
+        except Exception as e:
+            self.logger().exception("Unexpected error while initializing trading pair symbols.")
 
     async def _place_order(self,
                            order_id: str,

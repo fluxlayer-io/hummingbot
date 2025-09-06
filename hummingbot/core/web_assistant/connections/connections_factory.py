@@ -1,3 +1,4 @@
+import os
 from typing import TypeVar
 
 import aiohttp
@@ -48,7 +49,8 @@ class ConnectionsFactory:
         Lazily create a shared aiohttp.ClientSession if not already available.
         """
         if self._shared_client is None:
-            self._shared_client = aiohttp.ClientSession()
+            proxy = os.environ.get("HTTP_PROXY")
+            self._shared_client = aiohttp.ClientSession(proxy=proxy)
         return self._shared_client
 
     async def close(self) -> None:

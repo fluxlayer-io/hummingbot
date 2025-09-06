@@ -67,6 +67,7 @@ class GatewayHttpClient:
         api_port = client_config_map.gateway.gateway_api_port
         if GatewayHttpClient.__instance is None:
             self._base_url = f"https://{api_host}:{api_port}"
+            # self._base_url = f"http://{api_host}:{api_port}"
         self._client_config_map = client_config_map
         GatewayHttpClient.__instance = self
 

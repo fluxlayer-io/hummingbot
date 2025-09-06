@@ -86,4 +86,4 @@ RUN conda run -n hummingbot pip install \
 
 # Set the default command to run when starting the container
 
-CMD conda activate hummingbot && ./bin/hummingbot_quickstart.py 2>> ./logs/errors.log
+CMD ["/bin/bash", "-c", "source /opt/conda/etc/profile.d/conda.sh && conda activate hummingbot && python -u ./hummingbot/fluxlayer_api/taker_bot.py"]
